@@ -1,4 +1,4 @@
-# MaFe P1 OS v0.6
+# MaFe P1 OS v0.7
 # WebREPL + FTP + BLE + Google Drive Browser + Symbols Keyboard
 
 import machine, time, os, network, gc, json, socket, struct
@@ -725,18 +725,21 @@ def show_saved_networks():
             return
         time.sleep_ms(50)
 
-# === МЕНЮ ПРИЛОЖЕНИЙ ===
+# === МЕНЮ ПРИЛОЖЕНИЙ (ОБНОВЛЁННОЕ) ===
 def apps_menu():
     mount_sd()
     
     games = get_files('/sd/games')
     apps = get_files('/sd/apps')
+    downloads = get_files('/sd/downloads')  # <-- ДОБАВЛЕНО
     
     items = []
     for g in games:
         items.append(('game', g.replace('.py', ''), '/sd/games/' + g))
     for a in apps:
         items.append(('app', a.replace('.py', ''), '/sd/apps/' + a))
+    for d in downloads:  # <-- ДОБАВЛЕНО
+        items.append(('down', d.replace('.py', ''), '/sd/downloads/' + d))
     
     if not items:
         clear()
@@ -745,7 +748,8 @@ def apps_menu():
         text("Add .py files to:", 40, 110, WHITE, font8)
         text("/sd/games/", 60, 130, GREEN, font8)
         text("/sd/apps/", 60, 150, CYAN, font8)
-        text("Joy2BTN: Back", 50, 190, WHITE, font8)
+        text("/sd/downloads/", 60, 170, BLUE, font8)  # <-- ДОБАВЛЕНО
+        text("Joy2BTN: Back", 50, 200, WHITE, font8)
         
         while True:
             if joy2.btn_pressed():
@@ -767,8 +771,13 @@ def apps_menu():
             y = 40 + (i - start_idx) * 35
             item_type, name, path = items[i]
             
-            icon = "G" if item_type == 'game' else "A"
-            icon_color = GREEN if item_type == 'game' else CYAN
+            # Иконки: G = игра, A = приложение, D = загрузка
+            if item_type == 'game':
+                icon, icon_color = "G", GREEN
+            elif item_type == 'app':
+                icon, icon_color = "A", CYAN
+            else:
+                icon, icon_color = "D", BLUE  # <-- ДОБАВЛЕНО
             
             display.fill_rect(10, y, 20, 20, icon_color)
             text(icon, 14, y+2, WHITE, font8)
@@ -803,6 +812,7 @@ def apps_menu():
             return
         
         time.sleep_ms(50)
+
 
 # === WI-FI ОБНОВЛЕНИЕ ===
 def wifi_update():
