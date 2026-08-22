@@ -1,5 +1,5 @@
-# MaFe P1 OS v0.7
-# WebREPL + FTP + BLE + Google Drive Browser + Symbols Keyboard
+# MaFe P1 OS v0.8
+# WebREPL + FTP + BLE + Google Drive + Symbols Keyboard + Fixed WiFi Save
 
 import machine, time, os, network, gc, json, socket, struct
 import st7789, vga1_16x16 as font16, vga1_8x8 as font8
@@ -119,6 +119,10 @@ def mount_sd():
         sd = sdcard.SDCard(sd_spi, machine.Pin(16))
         os.mount(sd, '/sd')
         return True
+    except OSError as e:
+        if "EPERM" in str(e):
+            return True
+        return False
     except:
         return False
 
@@ -167,7 +171,6 @@ def launch_file(path):
 
 # === КЛАВИАТУРА С СИМВОЛАМИ ===
 def keyboard_input(title="Enter text", default=""):
-    """Клавиатура с буквами, цифрами и символами"""
     layouts = [
         "qwertyuiop",
         "asdfghjkl",
@@ -188,14 +191,12 @@ def keyboard_input(title="Enter text", default=""):
         clear()
         draw_status_bar(title)
         
-        # Поле ввода
         display.fill_rect(10, 35, 220, 30, MEDIUM_BLUE)
         display.rect(10, 35, 220, 30, CYAN)
         
         display_text = text_result[-18:] if len(text_result) > 18 else text_result
         text(display_text, 15, 42, WHITE, font16)
         
-        # Рисуем клавиатуру (5 строк: буквы + цифры + символы)
         key_y = 65
         for r in range(5):
             layout = layouts[r]
@@ -218,7 +219,6 @@ def keyboard_input(title="Enter text", default=""):
             
             key_y += 22
         
-        # Специальные клавиши
         key_y = 172
         key_x = 5
         for i, key in enumerate(special_keys):
@@ -315,7 +315,6 @@ def keyboard_input(title="Enter text", default=""):
 
 # === GOOGLE DRIVE BROWSER ===
 def google_drive_browser():
-    """Браузер для скачивания с Google Drive"""
     clear()
     draw_status_bar("Google Drive")
     text("Enter File ID:", 50, 60, WHITE, font16)
@@ -328,19 +327,16 @@ def google_drive_browser():
         sound_back()
         return
     
-    # Формируем URL для прямого скачивания
     download_url = "https://drive.google.com/uc?export=download&id=" + file_id
     
     clear()
     draw_status_bar("Downloading...")
     text("Connecting...", 60, 80, YELLOW, font16)
     
-    # Подключаемся к WiFi
     ssid, password = load_wifi_config()
     if not ssid:
-        text("No WiFi config!", 50, 110, RED, font16)
-        time.sleep_ms(2000)
-        return
+        ssid = "MaximusFed2WiFi"
+        password = "57256062"
     
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -359,7 +355,6 @@ def google_drive_browser():
         wlan.active(False)
         return
     
-    # Скачиваем файл
     try:
         import urequests
         
@@ -368,18 +363,12 @@ def google_drive_browser():
         response = urequests.get(download_url)
         
         if response.status_code == 200:
-            # Извлекаем имя файла из заголовков или генерируем
-            filename = "downloaded_file.py"
-            if "filename=" in str(response.headers):
-                # Пробуем извлечь имя
-                pass
+            filename = "downloaded_" + str(time.ticks_ms()) + ".py"
             
-            # Спрашиваем имя для сохранения
             save_name = keyboard_input("Save as:", filename)
             if not save_name:
                 save_name = filename
             
-            # Сохраняем
             filepath = "/sd/downloads/" + save_name
             try:
                 os.mkdir("/sd/downloads")
@@ -391,7 +380,7 @@ def google_drive_browser():
             
             sound_select()
             text("Saved!", 80, 180, GREEN, font16)
-            text(filepath, 40, 200, WHITE, font8)
+            text(save_name, 50, 200, WHITE, font8)
             time.sleep_ms(2000)
         else:
             sound_error()
@@ -410,7 +399,6 @@ def google_drive_browser():
 
 # === WEBREPL APP ===
 def webrepl_app():
-    """Информация о WebREPL"""
     clear()
     draw_status_bar("WebREPL")
     text("WebREPL", 70, 50, CYAN, font16)
@@ -441,31 +429,19 @@ def webrepl_app():
 
 # === FTP SERVER APP ===
 def ftp_server_app():
-    """Простой FTP сервер"""
     clear()
     draw_status_bar("FTP Server")
     text("FTP Server", 60, 50, CYAN, font16)
-    text("Starting...", 60, 90, YELLOW, font16)
-    
-    # Показываем IP
-    ip = "192.168.4.1"
-    try:
-        wlan = network.WLAN(network.STA_IF)
-        if wlan.isconnected():
-            ip = wlan.ifconfig()[0]
-    except:
-        pass
-    
-    text("IP: " + ip, 70, 120, WHITE, font16)
-    text("Port: 21", 75, 140, WHITE, font8)
-    text("", 0, 160, WHITE, font8)
-    text("Use FileZilla or", 45, 170, YELLOW, font8)
-    text("any FTP client", 50, 185, YELLOW, font8)
-    text("", 0, 200, WHITE, font8)
-    text("Joy2BTN: Stop", 50, 210, WHITE, font8)
-    
-    # Здесь можно реализовать простой FTP сервер
-    # Но для начала просто показываем информацию
+    text("Info", 90, 80, WHITE, font16)
+    text("", 0, 100, WHITE, font8)
+    text("Use FileZilla or", 45, 110, YELLOW, font8)
+    text("any FTP client", 50, 125, YELLOW, font8)
+    text("", 0, 140, WHITE, font8)
+    text("Connect to:", 50, 150, YELLOW, font8)
+    text("ftp://192.168.4.1", 45, 165, GREEN, font8)
+    text("Port: 21", 75, 180, WHITE, font8)
+    text("", 0, 195, WHITE, font8)
+    text("Joy2BTN: Back", 50, 210, WHITE, font8)
     
     while True:
         if joy2.btn_pressed():
@@ -475,7 +451,6 @@ def ftp_server_app():
 
 # === BLUETOOTH SERIAL APP ===
 def bluetooth_serial_app():
-    """Bluetooth UART сервис"""
     clear()
     draw_status_bar("Bluetooth UART")
     text("BLE UART", 70, 50, CYAN, font16)
@@ -490,8 +465,6 @@ def bluetooth_serial_app():
     text("", 0, 200, WHITE, font8)
     text("Joy2BTN: Back", 50, 210, WHITE, font8)
     
-    # Здесь можно реализовать BLE UART сервис
-    
     while True:
         if joy2.btn_pressed():
             sound_back()
@@ -500,7 +473,6 @@ def bluetooth_serial_app():
 
 # === СКАНЕР WiFi ===
 def wifi_scanner():
-    """Сканирует доступные WiFi сети"""
     clear()
     draw_status_bar("WiFi Scanner")
     text("Scanning...", 60, 100, YELLOW, font16)
@@ -581,9 +553,37 @@ def wifi_scanner():
         
         time.sleep_ms(50)
 
+# === СОХРАНЕНИЕ/ЗАГРУЗКА WiFi ===
+def save_wifi_config(ssid, password):
+    try:
+        mount_sd()
+        try:
+            os.mkdir('/sd/system')
+        except OSError:
+            pass
+        
+        with open('/sd/system/wifi_config.txt', 'w') as f:
+            f.write(ssid + '\n' + password)
+        
+        print("WiFi config saved: " + ssid)
+        return True
+    except Exception as e:
+        print("Save error: " + str(e))
+        return False
+
+def load_wifi_config():
+    try:
+        mount_sd()
+        with open('/sd/system/wifi_config.txt', 'r') as f:
+            lines = f.read().split('\n')
+            if len(lines) >= 2:
+                return lines[0].strip(), lines[1].strip()
+    except:
+        pass
+    return None, None
+
 # === НАСТРОЙКИ WiFi ===
 def wifi_settings():
-    """Настройки WiFi подключения"""
     menu_items = [
         ("Scan & Connect", GREEN),
         ("Saved Networks", CYAN),
@@ -648,7 +648,12 @@ def wifi_settings():
                         ip = wlan.ifconfig()[0]
                         text("IP: " + ip, 50, 180, WHITE, font8)
                         
-                        save_wifi_config(ssid, password)
+                        text("Saving...", 70, 200, YELLOW, font8)
+                        if save_wifi_config(ssid, password):
+                            text("Saved!", 80, 200, GREEN, font8)
+                        else:
+                            text("Save failed!", 60, 200, RED, font8)
+                        
                         time.sleep_ms(2500)
                     else:
                         sound_error()
@@ -685,27 +690,38 @@ def wifi_settings():
         
         time.sleep_ms(50)
 
-def save_wifi_config(ssid, password):
-    try:
-        with open('/sd/system/wifi_config.txt', 'w') as f:
-            f.write(ssid + '\n' + password)
-        print("WiFi config saved")
-    except Exception as e:
-        print("Save error: " + str(e))
-
-def load_wifi_config():
-    try:
-        with open('/sd/system/wifi_config.txt', 'r') as f:
-            lines = f.read().split('\n')
-            if len(lines) >= 2:
-                return lines[0], lines[1]
-    except:
-        pass
-    return None, None
-
 def show_saved_networks():
     clear()
     draw_status_bar("Saved Networks")
+    
+    mount_sd()
+    
+    try:
+        files = os.listdir('/sd/system')
+        if 'wifi_config.txt' not in files:
+            text("Config file", 55, 80, RED, font16)
+            text("not found!", 65, 100, RED, font16)
+            text("Connect to WiFi", 45, 130, YELLOW, font8)
+            text("first to save", 55, 145, YELLOW, font8)
+            text("Joy2BTN: Back", 50, 180, WHITE, font8)
+            
+            while True:
+                if joy2.btn_pressed():
+                    sound_back()
+                    return
+                time.sleep_ms(50)
+            return
+    except:
+        text("/sd/system/", 50, 80, RED, font16)
+        text("folder missing!", 45, 100, RED, font16)
+        text("Joy2BTN: Back", 50, 180, WHITE, font8)
+        
+        while True:
+            if joy2.btn_pressed():
+                sound_back()
+                return
+            time.sleep_ms(50)
+        return
     
     ssid, password = load_wifi_config()
     
@@ -725,20 +741,20 @@ def show_saved_networks():
             return
         time.sleep_ms(50)
 
-# === МЕНЮ ПРИЛОЖЕНИЙ (ОБНОВЛЁННОЕ) ===
+# === МЕНЮ ПРИЛОЖЕНИЙ (С DOWNLOADS) ===
 def apps_menu():
     mount_sd()
     
     games = get_files('/sd/games')
     apps = get_files('/sd/apps')
-    downloads = get_files('/sd/downloads')  # <-- ДОБАВЛЕНО
+    downloads = get_files('/sd/downloads')
     
     items = []
     for g in games:
         items.append(('game', g.replace('.py', ''), '/sd/games/' + g))
     for a in apps:
         items.append(('app', a.replace('.py', ''), '/sd/apps/' + a))
-    for d in downloads:  # <-- ДОБАВЛЕНО
+    for d in downloads:
         items.append(('down', d.replace('.py', ''), '/sd/downloads/' + d))
     
     if not items:
@@ -748,7 +764,7 @@ def apps_menu():
         text("Add .py files to:", 40, 110, WHITE, font8)
         text("/sd/games/", 60, 130, GREEN, font8)
         text("/sd/apps/", 60, 150, CYAN, font8)
-        text("/sd/downloads/", 60, 170, BLUE, font8)  # <-- ДОБАВЛЕНО
+        text("/sd/downloads/", 60, 170, BLUE, font8)
         text("Joy2BTN: Back", 50, 200, WHITE, font8)
         
         while True:
@@ -771,13 +787,12 @@ def apps_menu():
             y = 40 + (i - start_idx) * 35
             item_type, name, path = items[i]
             
-            # Иконки: G = игра, A = приложение, D = загрузка
             if item_type == 'game':
                 icon, icon_color = "G", GREEN
             elif item_type == 'app':
                 icon, icon_color = "A", CYAN
             else:
-                icon, icon_color = "D", BLUE  # <-- ДОБАВЛЕНО
+                icon, icon_color = "D", BLUE
             
             display.fill_rect(10, y, 20, 20, icon_color)
             text(icon, 14, y+2, WHITE, font8)
@@ -812,7 +827,6 @@ def apps_menu():
             return
         
         time.sleep_ms(50)
-
 
 # === WI-FI ОБНОВЛЕНИЕ ===
 def wifi_update():
