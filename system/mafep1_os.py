@@ -1394,11 +1394,12 @@ def main_menu():
     mount_sd()
     
     menu_items = [
-        ("Games & Apps", apps_menu, GREEN),
-        ("Google Drive", google_drive_browser, CYAN),
-        ("WiFi Update", wifi_update, BLUE),
-        ("Settings", wifi_settings, YELLOW),
-        ("About", about_screen, WHITE),
+    ("Games & Apps", apps_menu, GREEN),
+    ("GitHub Catalog", github_catalog, CYAN),
+    ("Google Drive", google_drive_browser, BLUE),
+    ("WiFi Update", wifi_update, YELLOW),
+    ("Settings", wifi_settings, RED),
+    ("About", about_screen, WHITE),
     ]
     
     selected = 0
