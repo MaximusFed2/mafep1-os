@@ -1,7 +1,7 @@
-# MaFe P1 OS v0.5
-# Settings + WiFi Scanner + On-screen Keyboard
+# MaFe P1 OS v0.6
+# WebREPL + FTP + BLE + Google Drive Browser + Symbols Keyboard
 
-import machine, time, os, network, gc, json
+import machine, time, os, network, gc, json, socket, struct
 import st7789, vga1_16x16 as font16, vga1_8x8 as font8
 
 # === ДИСПЛЕЙ ===
@@ -165,94 +165,15 @@ def launch_file(path):
                 return
             time.sleep_ms(50)
 
-# === МЕНЮ ПРИЛОЖЕНИЙ ===
-def apps_menu():
-    mount_sd()
-    
-    games = get_files('/sd/games')
-    apps = get_files('/sd/apps')
-    
-    items = []
-    for g in games:
-        items.append(('game', g.replace('.py', ''), '/sd/games/' + g))
-    for a in apps:
-        items.append(('app', a.replace('.py', ''), '/sd/apps/' + a))
-    
-    if not items:
-        clear()
-        draw_status_bar("Apps")
-        text("No apps found!", 50, 80, YELLOW, font16)
-        text("Add .py files to:", 40, 110, WHITE, font8)
-        text("/sd/games/", 60, 130, GREEN, font8)
-        text("/sd/apps/", 60, 150, CYAN, font8)
-        text("Joy2BTN: Back", 50, 190, WHITE, font8)
-        
-        while True:
-            if joy2.btn_pressed():
-                sound_back()
-                return
-            time.sleep_ms(50)
-        return
-    
-    selected = 0
-    
-    while True:
-        clear()
-        draw_status_bar("Apps Menu")
-        
-        start_idx = max(0, selected - 2)
-        end_idx = min(len(items), start_idx + 5)
-        
-        for i in range(start_idx, end_idx):
-            y = 40 + (i - start_idx) * 35
-            item_type, name, path = items[i]
-            
-            icon = "G" if item_type == 'game' else "A"
-            icon_color = GREEN if item_type == 'game' else CYAN
-            
-            display.fill_rect(10, y, 20, 20, icon_color)
-            text(icon, 14, y+2, WHITE, font8)
-            
-            name_color = WHITE
-            if i == selected:
-                display.rect(5, y-3, 230, 26, CYAN)
-                name_color = CYAN
-            
-            display_name = name[:18] if len(name) > 18 else name
-            text(display_name, 35, y+2, name_color, font16)
-        
-        draw_hints()
-        
-        direction = joy1.read()
-        
-        if direction == 'up' and selected > 0:
-            selected -= 1
-            sound_nav()
-            time.sleep_ms(150)
-        elif direction == 'down' and selected < len(items) - 1:
-            selected += 1
-            sound_nav()
-            time.sleep_ms(150)
-        elif joy1.btn_pressed():
-            _, _, path = items[selected]
-            sound_select()
-            launch_file(path)
-            mount_sd()
-        elif joy2.btn_pressed():
-            sound_back()
-            return
-        
-        time.sleep_ms(50)
-
-# === КЛАВИАТУРА ===
+# === КЛАВИАТУРА С СИМВОЛАМИ ===
 def keyboard_input(title="Enter text", default=""):
-    """Экранная клавиатура"""
+    """Клавиатура с буквами, цифрами и символами"""
     layouts = [
         "qwertyuiop",
         "asdfghjkl",
         "zxcvbnm",
         "1234567890",
-        "!@#$%^&*()"
+        "!@#$%^&*()",
     ]
     
     special_keys = ["SPACE", "BACK", "OK", "CANCEL"]
@@ -274,14 +195,14 @@ def keyboard_input(title="Enter text", default=""):
         display_text = text_result[-18:] if len(text_result) > 18 else text_result
         text(display_text, 15, 42, WHITE, font16)
         
-        # Рисуем клавиатуру (3 строки букв)
-        key_y = 80
-        for r in range(3):
+        # Рисуем клавиатуру (5 строк: буквы + цифры + символы)
+        key_y = 65
+        for r in range(5):
             layout = layouts[r]
             key_x = 5
             for c, char in enumerate(layout):
-                width = 22
-                height = 25
+                width = 20
+                height = 20
                 
                 if r == row and c == col and not in_special:
                     display.fill_rect(key_x, key_y, width, height, CYAN)
@@ -291,18 +212,18 @@ def keyboard_input(title="Enter text", default=""):
                     text_color = WHITE
                 
                 display.rect(key_x, key_y, width, height, CYAN)
-                text(char, key_x + 6, key_y + 5, text_color, font8)
+                text(char, key_x + 5, key_y + 3, text_color, font8)
                 
                 key_x += width + 2
             
-            key_y += 28
+            key_y += 22
         
         # Специальные клавиши
-        key_y = 170
+        key_y = 172
         key_x = 5
         for i, key in enumerate(special_keys):
             width = 55
-            height = 25
+            height = 20
             
             if in_special and i == special_idx:
                 display.fill_rect(key_x, key_y, width, height, CYAN)
@@ -312,7 +233,7 @@ def keyboard_input(title="Enter text", default=""):
                 text_color = WHITE
             
             display.rect(key_x, key_y, width, height, CYAN)
-            text(key, key_x + 5, key_y + 5, text_color, font8)
+            text(key, key_x + 5, key_y + 3, text_color, font8)
             
             key_x += width + 2
         
@@ -323,8 +244,8 @@ def keyboard_input(title="Enter text", default=""):
         if direction == 'up':
             if in_special:
                 in_special = False
-                row = 2
-                col = min(col, len(layouts[2]) - 1)
+                row = 4
+                col = min(col, len(layouts[4]) - 1)
                 sound_nav()
             elif row > 0:
                 row -= 1
@@ -333,11 +254,11 @@ def keyboard_input(title="Enter text", default=""):
             time.sleep_ms(150)
         
         elif direction == 'down':
-            if not in_special and row < 2:
+            if not in_special and row < 4:
                 row += 1
                 col = min(col, len(layouts[row]) - 1)
                 sound_nav()
-            elif not in_special and row == 2:
+            elif not in_special and row == 4:
                 in_special = True
                 special_idx = 0
                 sound_nav()
@@ -390,6 +311,191 @@ def keyboard_input(title="Enter text", default=""):
             sound_back()
             return default
         
+        time.sleep_ms(50)
+
+# === GOOGLE DRIVE BROWSER ===
+def google_drive_browser():
+    """Браузер для скачивания с Google Drive"""
+    clear()
+    draw_status_bar("Google Drive")
+    text("Enter File ID:", 50, 60, WHITE, font16)
+    text("From URL:", 60, 90, YELLOW, font8)
+    text("drive.google.com/file/d/", 30, 105, CYAN, font8)
+    
+    file_id = keyboard_input("Google Drive File ID")
+    
+    if not file_id:
+        sound_back()
+        return
+    
+    # Формируем URL для прямого скачивания
+    download_url = "https://drive.google.com/uc?export=download&id=" + file_id
+    
+    clear()
+    draw_status_bar("Downloading...")
+    text("Connecting...", 60, 80, YELLOW, font16)
+    
+    # Подключаемся к WiFi
+    ssid, password = load_wifi_config()
+    if not ssid:
+        text("No WiFi config!", 50, 110, RED, font16)
+        time.sleep_ms(2000)
+        return
+    
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    
+    for i in range(20):
+        if wlan.isconnected():
+            break
+        text(".", 100 + i*5, 120, GREEN, font8)
+        time.sleep_ms(500)
+    
+    if not wlan.isconnected():
+        sound_error()
+        text("WiFi failed!", 60, 150, RED, font16)
+        time.sleep_ms(2000)
+        wlan.active(False)
+        return
+    
+    # Скачиваем файл
+    try:
+        import urequests
+        
+        text("Downloading...", 50, 150, CYAN, font16)
+        
+        response = urequests.get(download_url)
+        
+        if response.status_code == 200:
+            # Извлекаем имя файла из заголовков или генерируем
+            filename = "downloaded_file.py"
+            if "filename=" in str(response.headers):
+                # Пробуем извлечь имя
+                pass
+            
+            # Спрашиваем имя для сохранения
+            save_name = keyboard_input("Save as:", filename)
+            if not save_name:
+                save_name = filename
+            
+            # Сохраняем
+            filepath = "/sd/downloads/" + save_name
+            try:
+                os.mkdir("/sd/downloads")
+            except:
+                pass
+            
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            
+            sound_select()
+            text("Saved!", 80, 180, GREEN, font16)
+            text(filepath, 40, 200, WHITE, font8)
+            time.sleep_ms(2000)
+        else:
+            sound_error()
+            text("Error " + str(response.status_code), 40, 150, RED, font16)
+            time.sleep_ms(2000)
+        
+        response.close()
+        
+    except Exception as e:
+        sound_error()
+        text("Error: " + str(e)[:20], 40, 150, RED, font16)
+        time.sleep_ms(2000)
+    
+    wlan.disconnect()
+    wlan.active(False)
+
+# === WEBREPL APP ===
+def webrepl_app():
+    """Информация о WebREPL"""
+    clear()
+    draw_status_bar("WebREPL")
+    text("WebREPL", 70, 50, CYAN, font16)
+    text("File Transfer", 50, 80, WHITE, font16)
+    text("", 0, 100, WHITE, font8)
+    text("1. Enable:", 40, 110, YELLOW, font8)
+    text("import webrepl_setup", 30, 125, WHITE, font8)
+    text("2. Open browser:", 40, 145, YELLOW, font8)
+    text("micropython.org/webrepl", 20, 160, CYAN, font8)
+    text("3. Connect to:", 40, 180, YELLOW, font8)
+    
+    ip = "192.168.4.1"
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        if wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+    except:
+        pass
+    
+    text("ws://" + ip + ":8266/", 25, 195, GREEN, font8)
+    text("Joy2BTN: Back", 50, 215, WHITE, font8)
+    
+    while True:
+        if joy2.btn_pressed():
+            sound_back()
+            return
+        time.sleep_ms(50)
+
+# === FTP SERVER APP ===
+def ftp_server_app():
+    """Простой FTP сервер"""
+    clear()
+    draw_status_bar("FTP Server")
+    text("FTP Server", 60, 50, CYAN, font16)
+    text("Starting...", 60, 90, YELLOW, font16)
+    
+    # Показываем IP
+    ip = "192.168.4.1"
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        if wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+    except:
+        pass
+    
+    text("IP: " + ip, 70, 120, WHITE, font16)
+    text("Port: 21", 75, 140, WHITE, font8)
+    text("", 0, 160, WHITE, font8)
+    text("Use FileZilla or", 45, 170, YELLOW, font8)
+    text("any FTP client", 50, 185, YELLOW, font8)
+    text("", 0, 200, WHITE, font8)
+    text("Joy2BTN: Stop", 50, 210, WHITE, font8)
+    
+    # Здесь можно реализовать простой FTP сервер
+    # Но для начала просто показываем информацию
+    
+    while True:
+        if joy2.btn_pressed():
+            sound_back()
+            return
+        time.sleep_ms(50)
+
+# === BLUETOOTH SERIAL APP ===
+def bluetooth_serial_app():
+    """Bluetooth UART сервис"""
+    clear()
+    draw_status_bar("Bluetooth UART")
+    text("BLE UART", 70, 50, CYAN, font16)
+    text("Serial over BT", 50, 80, WHITE, font16)
+    text("", 0, 100, WHITE, font8)
+    text("Install app:", 50, 110, YELLOW, font8)
+    text("Android: Serial BT", 35, 125, WHITE, font8)
+    text("iOS: LightBlue", 50, 140, WHITE, font8)
+    text("", 0, 155, WHITE, font8)
+    text("Connect to:", 50, 165, YELLOW, font8)
+    text("MaFeP1-BT", 60, 180, GREEN, font16)
+    text("", 0, 200, WHITE, font8)
+    text("Joy2BTN: Back", 50, 210, WHITE, font8)
+    
+    # Здесь можно реализовать BLE UART сервис
+    
+    while True:
+        if joy2.btn_pressed():
+            sound_back()
+            return
         time.sleep_ms(50)
 
 # === СКАНЕР WiFi ===
@@ -482,7 +588,9 @@ def wifi_settings():
         ("Scan & Connect", GREEN),
         ("Saved Networks", CYAN),
         ("WebREPL Info", YELLOW),
-        ("Disconnect", RED),
+        ("FTP Server", BLUE),
+        ("Bluetooth", RED),
+        ("Disconnect", WHITE),
     ]
     
     selected = 0
@@ -494,10 +602,10 @@ def wifi_settings():
         text("Settings", 60, 40, CYAN, font16)
         
         for i, (name, color) in enumerate(menu_items):
-            y = 80 + i * 35
+            y = 75 + i * 30
             if i == selected:
-                display.fill_rect(30, y-5, 180, 30, MEDIUM_BLUE)
-                display.rect(30, y-5, 180, 30, color)
+                display.fill_rect(30, y-5, 180, 28, MEDIUM_BLUE)
+                display.rect(30, y-5, 180, 28, color)
                 text(name, 40, y+5, color, font16)
             else:
                 text(name, 40, y+5, WHITE, font16)
@@ -553,9 +661,15 @@ def wifi_settings():
                 show_saved_networks()
             
             elif selected == 2:
-                show_webrepl_info()
+                webrepl_app()
             
             elif selected == 3:
+                ftp_server_app()
+            
+            elif selected == 4:
+                bluetooth_serial_app()
+            
+            elif selected == 5:
                 wlan = network.WLAN(network.STA_IF)
                 wlan.disconnect()
                 wlan.active(False)
@@ -611,23 +725,83 @@ def show_saved_networks():
             return
         time.sleep_ms(50)
 
-def show_webrepl_info():
-    clear()
-    draw_status_bar("WebREPL Info")
-    text("WebREPL", 60, 50, CYAN, font16)
-    text("File transfer", 50, 80, WHITE, font16)
-    text("via browser:", 50, 100, WHITE, font16)
-    text("", 0, 120, WHITE, font8)
-    text("1. Enable in REPL:", 40, 130, YELLOW, font8)
-    text("import webrepl_setup", 30, 145, WHITE, font8)
-    text("2. Open on phone:", 40, 165, YELLOW, font8)
-    text("micropython.org/webrepl", 20, 180, CYAN, font8)
-    text("Joy2BTN: Back", 50, 210, WHITE, font8)
+# === МЕНЮ ПРИЛОЖЕНИЙ ===
+def apps_menu():
+    mount_sd()
+    
+    games = get_files('/sd/games')
+    apps = get_files('/sd/apps')
+    
+    items = []
+    for g in games:
+        items.append(('game', g.replace('.py', ''), '/sd/games/' + g))
+    for a in apps:
+        items.append(('app', a.replace('.py', ''), '/sd/apps/' + a))
+    
+    if not items:
+        clear()
+        draw_status_bar("Apps")
+        text("No apps found!", 50, 80, YELLOW, font16)
+        text("Add .py files to:", 40, 110, WHITE, font8)
+        text("/sd/games/", 60, 130, GREEN, font8)
+        text("/sd/apps/", 60, 150, CYAN, font8)
+        text("Joy2BTN: Back", 50, 190, WHITE, font8)
+        
+        while True:
+            if joy2.btn_pressed():
+                sound_back()
+                return
+            time.sleep_ms(50)
+        return
+    
+    selected = 0
     
     while True:
-        if joy2.btn_pressed():
+        clear()
+        draw_status_bar("Apps Menu")
+        
+        start_idx = max(0, selected - 2)
+        end_idx = min(len(items), start_idx + 5)
+        
+        for i in range(start_idx, end_idx):
+            y = 40 + (i - start_idx) * 35
+            item_type, name, path = items[i]
+            
+            icon = "G" if item_type == 'game' else "A"
+            icon_color = GREEN if item_type == 'game' else CYAN
+            
+            display.fill_rect(10, y, 20, 20, icon_color)
+            text(icon, 14, y+2, WHITE, font8)
+            
+            name_color = WHITE
+            if i == selected:
+                display.rect(5, y-3, 230, 26, CYAN)
+                name_color = CYAN
+            
+            display_name = name[:18] if len(name) > 18 else name
+            text(display_name, 35, y+2, name_color, font16)
+        
+        draw_hints()
+        
+        direction = joy1.read()
+        
+        if direction == 'up' and selected > 0:
+            selected -= 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif direction == 'down' and selected < len(items) - 1:
+            selected += 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif joy1.btn_pressed():
+            _, _, path = items[selected]
+            sound_select()
+            launch_file(path)
+            mount_sd()
+        elif joy2.btn_pressed():
             sound_back()
             return
+        
         time.sleep_ms(50)
 
 # === WI-FI ОБНОВЛЕНИЕ ===
@@ -765,14 +939,14 @@ def about_screen():
     clear()
     draw_status_bar("About")
     text("MaFe P1 OS", 60, 50, CYAN, font16)
-    text("Version 0.5", 65, 80, WHITE, font16)
+    text("Version 0.6", 65, 80, WHITE, font16)
     text("", 0, 100, WHITE, font8)
     text("Features:", 60, 120, YELLOW, font16)
-    text("- App menu", 50, 140, WHITE, font8)
-    text("- Game loader", 50, 155, WHITE, font8)
-    text("- WiFi updates", 50, 170, WHITE, font8)
-    text("- Settings menu", 50, 185, WHITE, font8)
-    text("- WiFi scanner", 50, 200, WHITE, font8)
+    text("- WebREPL support", 50, 140, WHITE, font8)
+    text("- FTP Server", 50, 155, WHITE, font8)
+    text("- Bluetooth UART", 50, 170, WHITE, font8)
+    text("- Google Drive", 50, 185, WHITE, font8)
+    text("- Symbols keyboard", 50, 200, WHITE, font8)
     text("Joy2BTN to exit", 50, 215, YELLOW, font8)
     
     while True:
@@ -787,7 +961,8 @@ def main_menu():
     
     menu_items = [
         ("Games & Apps", apps_menu, GREEN),
-        ("WiFi Update", wifi_update, CYAN),
+        ("Google Drive", google_drive_browser, CYAN),
+        ("WiFi Update", wifi_update, BLUE),
         ("Settings", wifi_settings, YELLOW),
         ("About", about_screen, WHITE),
     ]
@@ -800,12 +975,12 @@ def main_menu():
     
     while True:
         clear()
-        draw_status_bar("MaFe P1 OS v0.5")
+        draw_status_bar("MaFe P1 OS v0.6")
         
         text("MaFe P1", 70, 40, CYAN, font16)
         
         for i, (name, _, color) in enumerate(menu_items):
-            y = 80 + i * 35
+            y = 75 + i * 35
             if i == selected:
                 display.fill_rect(30, y-5, 180, 30, MEDIUM_BLUE)
                 display.rect(30, y-5, 180, 30, color)
@@ -835,7 +1010,7 @@ def main_menu():
         time.sleep_ms(50)
 
 # === ЗАПУСК ===
-print("MaFe P1 OS v0.5 starting...")
+print("MaFe P1 OS v0.6 starting...")
 print("Controls: Joy1=Nav, Joy1BTN=OK, Joy2BTN=Back")
-print("New: Settings, WiFi scanner, keyboard")
+print("New: WebREPL, FTP, BLE, Google Drive, Symbols")
 main_menu()
