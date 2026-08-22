@@ -1,4 +1,4 @@
-# MaFe P1 OS v0.9
+# MaFe P1 OS v0.9.1
 # WebREPL + FTP + BLE + Google Drive + Symbols Keyboard + Fixed WiFi Save
 
 import machine, time, os, network, gc, json, socket, struct
@@ -169,102 +169,8 @@ def launch_file(path):
                 return
             time.sleep_ms(50)
 
-# === КЛАВИАТУРА С СИМВОЛАМИ ===
+# === КЛАВИАТУРА v3 (ИСПРАВЛЕННОЕ ВЫДЕЛЕНИЕ + ПРОКРУТКА) ===
 def keyboard_input(title="Enter text", default=""):
-    layouts = [
-        "qwertyuiop",
-        "asdfghjkl",
-        "zxcvbnm",
-        "1234567890",
-        "!@#$%^&*()",
-    ]
-    
-    special_keys = ["SPACE", "BACK", "OK", "CANCEL"]
-    
-    text_result = default
-    row = 0
-    col = 0
-    special_idx = 0
-    in_special = False
-    
-    while True:
-        clear()
-        draw_status_bar(title)
-        
-        display.fill_rect(10, 35, 220, 30, MEDIUM_BLUE)
-        display.rect(10, 35, 220, 30, CYAN)
-        
-        display_text = text_result[-18:] if len(text_result) > 18 else text_result
-        text(display_text, 15, 42, WHITE, font16)
-        
-        key_y = 65
-        for r in range(5):
-            layout = layouts[r]
-            key_x = 5
-            for c, char in enumerate(layout):
-                width = 20
-                height = 20
-                
-                if r == row and c == col and not in_special:
-                    display.fill_rect(key_x, key_y, width, height, CYAN)
-                    text_color = BLACK
-                else:
-                    display.fill_rect(key_x, key_y, width, height, DARK_BLUE)
-                    text_color = WHITE
-                
-                display.rect(key_x, key_y, width, height, CYAN)
-                text(char, key_x + 5, key_y + 3, text_color, font8)
-                
-                key_x += width + 2
-            
-            key_y += 22
-        
-        key_y = 172
-        key_x = 5
-        for i, key in enumerate(special_keys):
-            width = 55
-            height = 20
-            
-            if in_special and i == special_idx:
-                display.fill_rect(key_x, key_y, width, height, CYAN)
-                text_color = BLACK
-            else:
-                display.fill_rect(key_x, key_y, width, height, DARK_BLUE)
-                text_color = WHITE
-            
-            display.rect(key_x, key_y, width, height, CYAN)
-            text(key, key_x + 5, key_y + 3, text_color, font8)
-            
-            key_x += width + 2
-        
-        draw_hints()
-        
-        direction = joy1.read()
-        
-        if direction == 'up':
-            if in_special:
-                in_special = False
-                row = 4
-                col = min(col, len(layouts[4]) - 1)
-                sound_nav()
-            elif row > 0:
-                row -= 1
-                col = min(col, len(layouts[row]) - 1)
-                sound_nav()
-            time.sleep_ms(150)
-        
-        elif direction == 'down':
-            if not in_special and row < 4:
-                row += 1
-                col = min(col, len(layouts[row]) - 1)
-                sound_nav()
-            elif not in_special and row == 4:
-                in_special = True
-
-
-# === КЛАВИАТУРА v2 (ЗАГЛАВНЫЕ + "/" + важные символы) ===
-def keyboard_input(title="Enter text", default=""):
-    # 5 строк: буквы + заглавные + цифры + символы
     layouts_lower = [
         "qwertyuiop",
         "asdfghjkl",
@@ -276,7 +182,7 @@ def keyboard_input(title="Enter text", default=""):
         "ZXCVBNM",
     ]
     layouts_numbers = "1234567890"
-    layouts_symbols = "/._-:;!?()[]"  # <-- "/" ПЕРВЫМ!
+    layouts_symbols = "/._-:;!?()[]"
     
     special_keys = ["SPACE", "BACK", "SHIFT", "OK", "CANCEL"]
     
@@ -285,7 +191,8 @@ def keyboard_input(title="Enter text", default=""):
     col = 0
     special_idx = 0
     mode = 0  # 0=строчные, 1=заглавные, 2=цифры, 3=символы, 4=special
-    shift_active = False  # однократный shift
+    shift_active = False
+    cursor_pos = 0  # Позиция курсора для прокрутки
     
     def get_current_layouts():
         if mode == 0:
@@ -298,24 +205,32 @@ def keyboard_input(title="Enter text", default=""):
         clear()
         draw_status_bar(title)
         
-        # Поле ввода
+        # Поле ввода с прокруткой
         display.fill_rect(10, 35, 220, 30, MEDIUM_BLUE)
         display.rect(10, 35, 220, 30, CYAN)
         
-        display_text = text_result[-18:] if len(text_result) > 18 else text_result
+        # Прокрутка: показываем текст вокруг курсора
+        display_text = text_result
+        if len(display_text) > 18:
+            if cursor_pos < 9:
+                display_text = display_text[:18]
+            elif cursor_pos > len(display_text) - 9:
+                display_text = display_text[-18:]
+            else:
+                display_text = display_text[cursor_pos-9:cursor_pos+9]
+        
         text(display_text, 15, 42, WHITE, font16)
         
-        # Режим в статус-баре
+        # Режим
         mode_names = ["abc", "ABC", "123", "#+=", "KEYS"]
         text(mode_names[mode] if mode < 4 else "", 180, 5, YELLOW, font8)
         if shift_active:
             text("SHIFT", 200, 5, GREEN, font8)
         
-        # Рисуем клавиатуру
         current_layouts = get_current_layouts()
         
         if current_layouts:
-            # Режим букв (строчные/заглавные)
+            # Режим букв
             key_y = 72
             for r in range(3):
                 layout = current_layouts[r]
@@ -324,7 +239,7 @@ def keyboard_input(title="Enter text", default=""):
                     width = 22
                     height = 20
                     
-                    if mode < 2 and r == row and c == col:
+                    if r == row and c == col:
                         display.fill_rect(key_x, key_y, width, height, CYAN)
                         text_color = BLACK
                     else:
@@ -336,7 +251,7 @@ def keyboard_input(title="Enter text", default=""):
                     key_x += width + 2
                 key_y += 22
         else:
-            # Режим цифр или символов (одна строка)
+            # Режим цифр или символов (ОДНА строка)
             layout = layouts_numbers if mode == 2 else layouts_symbols
             key_y = 72
             key_x = 5
@@ -344,7 +259,8 @@ def keyboard_input(title="Enter text", default=""):
                 width = 22
                 height = 20
                 
-                if r == 0 and c == col and mode < 4:
+                # ИСПРАВЛЕНО: используем col для выделения
+                if c == col:
                     display.fill_rect(key_x, key_y, width, height, CYAN)
                     text_color = BLACK
                 else:
@@ -466,9 +382,11 @@ def keyboard_input(title="Enter text", default=""):
                 key = special_keys[special_idx]
                 if key == "SPACE":
                     text_result += " "
+                    cursor_pos = len(text_result)
                     sound_select()
                 elif key == "BACK":
                     text_result = text_result[:-1]
+                    cursor_pos = max(0, cursor_pos - 1)
                     sound_back()
                 elif key == "SHIFT":
                     shift_active = not shift_active
@@ -492,9 +410,9 @@ def keyboard_input(title="Enter text", default=""):
                     char = layouts_symbols[col]
                 
                 text_result += char
+                cursor_pos = len(text_result)
                 sound_select()
                 
-                # Shift срабатывает один раз
                 if shift_active and mode == 1:
                     shift_active = False
                     mode = 0
