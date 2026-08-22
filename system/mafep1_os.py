@@ -425,6 +425,263 @@ def keyboard_input(title="Enter text", default=""):
         
         time.sleep_ms(50)
 
+# === GITHUB GAME CATALOG ===
+CATALOG_URL = "https://raw.githubusercontent.com/MaximusFed2/mafep1-os/main/catalog.txt"
+
+def load_catalog():
+    """Загружает каталог игр с GitHub"""
+    ssid, password = load_wifi_config()
+    if not ssid:
+        ssid = "MaximusFed2WiFi"
+        password = "57256062"
+    
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    
+    clear()
+    draw_status_bar("Loading Catalog")
+    text("Connecting...", 60, 80, YELLOW, font16)
+    
+    for i in range(20):
+        if wlan.isconnected():
+            break
+        text(".", 100 + i*5, 120, GREEN, font8)
+        time.sleep_ms(500)
+    
+    if not wlan.isconnected():
+        sound_error()
+        text("WiFi failed!", 60, 150, RED, font16)
+        time.sleep_ms(2000)
+        wlan.active(False)
+        return None
+    
+    try:
+        import urequests
+        
+        text("Downloading...", 50, 150, CYAN, font16)
+        
+        response = urequests.get(CATALOG_URL)
+        
+        if response.status_code == 200:
+            catalog_text = response.text
+            response.close()
+            wlan.disconnect()
+            wlan.active(False)
+            
+            # Парсим каталог
+            games = []
+            for line in catalog_text.split('\n'):
+                line = line.strip()
+                if '|' in line:
+                    parts = line.split('|')
+                    if len(parts) >= 2:
+                        name = parts[0].strip()
+                        url = parts[1].strip()
+                        version = parts[2].strip() if len(parts) > 2 else "1.0"
+                        games.append((name, url, version))
+            
+            return games
+        else:
+            response.close()
+            wlan.disconnect()
+            wlan.active(False)
+            sound_error()
+            return None
+            
+    except Exception as e:
+        try:
+            wlan.disconnect()
+            wlan.active(False)
+        except:
+            pass
+        sound_error()
+        return None
+
+def download_game(name, url):
+    """Скачивает игру по URL"""
+    ssid, password = load_wifi_config()
+    if not ssid:
+        ssid = "MaximusFed2WiFi"
+        password = "57256062"
+    
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    
+    clear()
+    draw_status_bar("Downloading")
+    text("Connecting...", 60, 80, YELLOW, font16)
+    
+    for i in range(20):
+        if wlan.isconnected():
+            break
+        time.sleep_ms(500)
+    
+    if not wlan.isconnected():
+        sound_error()
+        text("WiFi failed!", 60, 120, RED, font16)
+        time.sleep_ms(2000)
+        wlan.active(False)
+        return False
+    
+    try:
+        import urequests
+        
+        text("Downloading...", 50, 120, CYAN, font16)
+        text(name[:20], 50, 140, WHITE, font8)
+        
+        response = urequests.get(url)
+        
+        if response.status_code == 200:
+            # Сохраняем в /sd/downloads/
+            filepath = "/sd/downloads/" + name + ".py"
+            try:
+                os.mkdir("/sd/downloads")
+            except:
+                pass
+            
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            
+            response.close()
+            wlan.disconnect()
+            wlan.active(False)
+            
+            sound_select()
+            clear()
+            draw_status_bar("Success!")
+            text("Downloaded!", 60, 80, GREEN, font16)
+            text(name[:20], 50, 110, WHITE, font16)
+            size = os.stat(filepath)[6]
+            text(str(size) + " bytes", 60, 140, CYAN, font8)
+            time.sleep_ms(2000)
+            return True
+        else:
+            response.close()
+            wlan.disconnect()
+            wlan.active(False)
+            sound_error()
+            clear()
+            draw_status_bar("Error")
+            text("HTTP " + str(response.status_code), 50, 100, RED, font16)
+            time.sleep_ms(2000)
+            return False
+            
+    except Exception as e:
+        try:
+            wlan.disconnect()
+            wlan.active(False)
+        except:
+            pass
+        sound_error()
+        clear()
+        draw_status_bar("Error")
+        text("Error: " + str(e)[:20], 40, 100, RED, font16)
+        time.sleep_ms(2000)
+        return False
+
+def github_catalog():
+    """Главное меню каталога GitHub"""
+    clear()
+    draw_status_bar("GitHub Catalog")
+    text("Loading...", 60, 100, YELLOW, font16)
+    
+    games = load_catalog()
+    
+    if games is None:
+        sound_error()
+        text("Failed to load", 45, 100, RED, font16)
+        text("catalog!", 70, 120, RED, font16)
+        text("Joy2BTN: Back", 50, 160, WHITE, font8)
+        
+        while True:
+            if joy2.btn_pressed():
+                sound_back()
+                return
+            time.sleep_ms(50)
+        return
+    
+    if not games:
+        text("No games found", 45, 100, YELLOW, font16)
+        text("Joy2BTN: Back", 50, 160, WHITE, font8)
+        
+        while True:
+            if joy2.btn_pressed():
+                sound_back()
+                return
+            time.sleep_ms(50)
+        return
+    
+    selected = 0
+    
+    while True:
+        clear()
+        draw_status_bar("GitHub Catalog (" + str(len(games)) + ")")
+        
+        start_idx = max(0, selected - 2)
+        end_idx = min(len(games), start_idx + 5)
+        
+        for i in range(start_idx, end_idx):
+            y = 50 + (i - start_idx) * 35
+            name, url, version = games[i]
+            
+            name_color = WHITE
+            if i == selected:
+                display.fill_rect(10, y-5, 220, 30, MEDIUM_BLUE)
+                display.rect(10, y-5, 220, 30, CYAN)
+                name_color = CYAN
+            
+            display_name = name[:18] if len(name) > 18 else name
+            text(display_name, 20, y+5, name_color, font16)
+            text("v" + version, 180, y+10, GREEN, font8)
+        
+        draw_hints()
+        
+        direction = joy1.read()
+        
+        if direction == 'up' and selected > 0:
+            selected -= 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif direction == 'down' and selected < len(games) - 1:
+            selected += 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif joy1.btn_pressed():
+            name, url, version = games[selected]
+            sound_select()
+            
+            # Подтверждение скачивания
+            clear()
+            draw_status_bar("Download?")
+            text("Download:", 60, 70, WHITE, font16)
+            text(name[:20], 50, 100, CYAN, font16)
+            text("v" + version, 90, 130, GREEN, font8)
+            text("", 0, 150, WHITE, font8)
+            text("Joy1BTN: Yes", 50, 170, GREEN, font8)
+            text("Joy2BTN: No", 55, 190, RED, font8)
+            
+            confirm = False
+            while True:
+                if joy1.btn_pressed():
+                    confirm = True
+                    sound_select()
+                    break
+                elif joy2.btn_pressed():
+                    sound_back()
+                    break
+                time.sleep_ms(50)
+            
+            if confirm:
+                download_game(name, url)
+        
+        elif joy2.btn_pressed():
+            sound_back()
+            return
+        
+        time.sleep_ms(50)
+
 # === GOOGLE DRIVE С ИЗБРАННЫМИ ФАЙЛАМИ ===
 def google_drive_browser():
     # Список избранных файлов (можно расширять)
