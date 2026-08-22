@@ -1,4 +1,4 @@
-# MaFe P1 OS v0.9.1
+# MaFe P1 OS v0.9.2
 # WebREPL + FTP + BLE + Google Drive + Symbols Keyboard + Fixed WiFi Save
 
 import machine, time, os, network, gc, json, socket, struct
