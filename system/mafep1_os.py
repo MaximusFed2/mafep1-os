@@ -1389,6 +1389,408 @@ def about_screen():
             return
         time.sleep_ms(50)
 
+# === FIREBASE CLOUD SYNC С ПАРОЛЕМ ===
+FIREBASE_URL = "https://mafep1-saves-default-rtdb.europe-west1.firebasedatabase.app"
+FIREBASE_USER_FILE = '/sd/system/firebase_user.txt'
+
+def get_firebase_user():
+    """Возвращает (user_id, password) или (None, None)"""
+    try:
+        mount_sd()
+        with open(FIREBASE_USER_FILE, 'r') as f:
+            lines = f.read().strip().split('\n')
+            if len(lines) >= 2:
+                return lines[0].strip(), lines[1].strip()
+    except:
+        pass
+    return None, None
+
+def save_firebase_user(user_id, password):
+    """Сохраняет User ID и пароль"""
+    try:
+        mount_sd()
+        try:
+            os.mkdir('/sd/system')
+        except OSError:
+            pass
+        with open(FIREBASE_USER_FILE, 'w') as f:
+            f.write(user_id + '\n' + password)
+        return True
+    except:
+        return False
+
+def setup_firebase_account():
+    """Настройка аккаунта Firebase (User ID + пароль)"""
+    clear()
+    draw_status_bar("Firebase Account")
+    text("Create Account", 40, 50, CYAN, font16)
+    text("", 0, 70, WHITE, font8)
+    text("Enter User ID:", 40, 80, WHITE, font16)
+    text("(any name)", 60, 100, YELLOW, font8)
+    
+    user_id = keyboard_input("User ID")
+    if not user_id:
+        return
+    
+    clear()
+    draw_status_bar("Firebase Account")
+    text("User: " + user_id[:15], 40, 50, CYAN, font16)
+    text("", 0, 70, WHITE, font8)
+    text("Enter Password:", 30, 80, WHITE, font16)
+    text("(4-20 chars)", 60, 100, YELLOW, font8)
+    
+    password = keyboard_input("Password")
+    if not password:
+        return
+    
+    if len(password) < 4:
+        clear()
+        draw_status_bar("Error")
+        text("Password too", 50, 100, RED, font16)
+        text("short! (min 4)", 45, 120, RED, font16)
+        time.sleep_ms(2000)
+        return
+    
+    if save_firebase_user(user_id, password):
+        sound_select()
+        clear()
+        draw_status_bar("Success!")
+        text("Account created!", 35, 100, GREEN, font16)
+        text("User: " + user_id[:15], 40, 130, WHITE, font8)
+        time.sleep_ms(2000)
+    else:
+        sound_error()
+        clear()
+        draw_status_bar("Error")
+        text("Save failed!", 60, 100, RED, font16)
+        time.sleep_ms(2000)
+
+def firebase_upload_save():
+    """Загружает сохранение с защитой от перезаписи"""
+    user_id, password = get_firebase_user()
+    
+    if not user_id or not password:
+        clear()
+        draw_status_bar("Error")
+        text("No account!", 60, 80, RED, font16)
+        text("Setup first!", 55, 100, RED, font16)
+        time.sleep_ms(2000)
+        return
+    
+    ssid, password_wifi = load_wifi_config()
+    if not ssid:
+        ssid = "MaximusFed2WiFi"
+        password_wifi = "57256062"
+    
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password_wifi)
+    
+    clear()
+    draw_status_bar("Uploading...")
+    text("Connecting...", 60, 80, YELLOW, font16)
+    
+    for i in range(20):
+        if wlan.isconnected():
+            break
+        time.sleep_ms(500)
+    
+    if not wlan.isconnected():
+        sound_error()
+        text("WiFi failed!", 60, 120, RED, font16)
+        time.sleep_ms(2000)
+        wlan.active(False)
+        return
+    
+    save_file = "/sd/saves/game_save.dat"
+    try:
+        with open(save_file, 'rb') as f:
+            save_data = f.read()
+    except:
+        sound_error()
+        text("No save file!", 60, 120, RED, font16)
+        time.sleep_ms(2000)
+        wlan.active(False)
+        return
+    
+    try:
+        import urequests
+        import ubinascii
+        
+        # Проверяем, есть ли уже данные
+        url = FIREBASE_URL + "/saves/" + user_id + ".json"
+        response = urequests.get(url)
+        
+        if response.status_code == 200:
+            existing = response.json()
+            if existing and 'password' in existing:
+                if existing['password'] != password:
+                    sound_error()
+                    clear()
+                    draw_status_bar("Access Denied!")
+                    text("User ID taken by", 35, 80, RED, font16)
+                    text("another user!", 45, 100, RED, font16)
+                    text("Choose another", 40, 130, YELLOW, font8)
+                    text("User ID", 70, 145, YELLOW, font8)
+                    time.sleep_ms(3000)
+                    response.close()
+                    wlan.disconnect()
+                    wlan.active(False)
+                    return
+        
+        response.close()
+        
+        # Загружаем данные
+        encoded = ubinascii.b2a_base64(save_data).decode('utf-8').strip()
+        data = '{"password":"' + password + '","data":"' + encoded + '","timestamp":' + str(time.time()) + '}'
+        
+        response = urequests.put(url, data=data)
+        
+        if response.status_code == 200:
+            sound_select()
+            clear()
+            draw_status_bar("Success!")
+            text("Uploaded!", 70, 100, GREEN, font16)
+            text("User: " + user_id[:15], 40, 130, CYAN, font8)
+            text("Size: " + str(len(save_data)), 50, 150, WHITE, font8)
+            time.sleep_ms(2000)
+        else:
+            sound_error()
+            clear()
+            draw_status_bar("Error")
+            text("HTTP " + str(response.status_code), 50, 100, RED, font16)
+            time.sleep_ms(2000)
+        
+        response.close()
+    except Exception as e:
+        sound_error()
+        clear()
+        draw_status_bar("Error")
+        text("Error: " + str(e)[:20], 40, 100, RED, font16)
+        time.sleep_ms(2000)
+    
+    wlan.disconnect()
+    wlan.active(False)
+
+def firebase_download_save():
+    """Скачивает сохранение из Firebase (с проверкой пароля)"""
+    user_id, password = get_firebase_user()
+    
+    if not user_id or not password:
+        clear()
+        draw_status_bar("Error")
+        text("No account!", 60, 80, RED, font16)
+        text("Setup first!", 55, 100, RED, font16)
+        time.sleep_ms(2000)
+        return
+    
+    ssid, password_wifi = load_wifi_config()
+    if not ssid:
+        ssid = "MaximusFed2WiFi"
+        password_wifi = "57256062"
+    
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password_wifi)
+    
+    clear()
+    draw_status_bar("Downloading...")
+    text("Connecting...", 60, 80, YELLOW, font16)
+    
+    for i in range(20):
+        if wlan.isconnected():
+            break
+        time.sleep_ms(500)
+    
+    if not wlan.isconnected():
+        sound_error()
+        text("WiFi failed!", 60, 120, RED, font16)
+        time.sleep_ms(2000)
+        wlan.active(False)
+        return
+    
+    try:
+        import urequests
+        import ubinascii
+        
+        url = FIREBASE_URL + "/saves/" + user_id + ".json"
+        response = urequests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data:
+                if 'password' in data and data['password'] != password:
+                    sound_error()
+                    clear()
+                    draw_status_bar("Access Denied!")
+                    text("Wrong password!", 40, 100, RED, font16)
+                    text("for this User ID", 35, 120, RED, font16)
+                    time.sleep_ms(2500)
+                    response.close()
+                    wlan.disconnect()
+                    wlan.active(False)
+                    return
+                
+                if 'data' in data:
+                    encoded = data['data']
+                    save_data = ubinascii.a2b_base64(encoded)
+                    
+                    try:
+                        os.mkdir("/sd/saves")
+                    except:
+                        pass
+                    
+                    with open("/sd/saves/game_save.dat", 'wb') as f:
+                        f.write(save_data)
+                    
+                    sound_select()
+                    clear()
+                    draw_status_bar("Success!")
+                    text("Downloaded!", 60, 100, GREEN, font16)
+                    text("User: " + user_id[:15], 40, 130, CYAN, font8)
+                    text("Size: " + str(len(save_data)), 50, 150, WHITE, font8)
+                    time.sleep_ms(2000)
+                else:
+                    sound_error()
+                    clear()
+                    draw_status_bar("No Save")
+                    text("No save data", 50, 100, YELLOW, font16)
+                    time.sleep_ms(2000)
+            else:
+                sound_error()
+                clear()
+                draw_status_bar("No Save")
+                text("No save found", 50, 100, YELLOW, font16)
+                time.sleep_ms(2000)
+        else:
+            sound_error()
+            clear()
+            draw_status_bar("Error")
+            text("HTTP " + str(response.status_code), 50, 100, RED, font16)
+            time.sleep_ms(2000)
+        
+        response.close()
+    except Exception as e:
+        sound_error()
+        clear()
+        draw_status_bar("Error")
+        text("Error: " + str(e)[:20], 40, 100, RED, font16)
+        time.sleep_ms(2000)
+    
+    wlan.disconnect()
+    wlan.active(False)
+
+def firebase_account_info():
+    """Показывает информацию об аккаунте"""
+    user_id, password = get_firebase_user()
+    
+    clear()
+    draw_status_bar("Account Info")
+    
+    if user_id:
+        text("User ID:", 60, 60, WHITE, font16)
+        text(user_id[:20], 50, 90, CYAN, font16)
+        text("", 0, 115, WHITE, font8)
+        text("Password:", 60, 125, WHITE, font16)
+        text("*" * len(password), 70, 155, GREEN, font16)
+        text("", 0, 180, WHITE, font8)
+        text("Use same ID+Pass", 35, 190, YELLOW, font8)
+        text("on all devices", 45, 205, YELLOW, font8)
+    else:
+        text("No account", 60, 100, RED, font16)
+        text("created yet", 55, 120, RED, font16)
+    
+    text("Joy2BTN: Back", 50, 220, WHITE, font8)
+    
+    while True:
+        if joy2.btn_pressed():
+            sound_back()
+            return
+        time.sleep_ms(50)
+
+def firebase_menu():
+    """Главное меню Firebase"""
+    menu_items = [
+        ("Upload Save", GREEN),
+        ("Download Save", CYAN),
+        ("Account Info", YELLOW),
+        ("Change Account", WHITE),
+    ]
+    
+    selected = 0
+    
+    while True:
+        clear()
+        draw_status_bar("Firebase Sync")
+        
+        text("Cloud Sync", 60, 40, CYAN, font16)
+        
+        user_id, _ = get_firebase_user()
+        if user_id:
+            text("User: " + user_id[:12], 40, 65, GREEN, font8)
+        else:
+            text("No account", 60, 65, RED, font8)
+        
+        for i, (name, color) in enumerate(menu_items):
+            y = 85 + i * 30
+            if i == selected:
+                display.fill_rect(30, y-5, 180, 28, MEDIUM_BLUE)
+                display.rect(30, y-5, 180, 28, color)
+                text(name, 40, y+5, color, font16)
+            else:
+                text(name, 40, y+5, WHITE, font16)
+        
+        draw_hints()
+        
+        direction = joy1.read()
+        
+        if direction == 'up' and selected > 0:
+            selected -= 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif direction == 'down' and selected < len(menu_items) - 1:
+            selected += 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif joy1.btn_pressed():
+            sound_select()
+            
+            if selected == 0:
+                firebase_upload_save()
+            elif selected == 1:
+                firebase_download_save()
+            elif selected == 2:
+                firebase_account_info()
+            elif selected == 3:
+                clear()
+                draw_status_bar("Change Account?")
+                text("This will erase", 40, 80, YELLOW, font16)
+                text("current account", 40, 100, YELLOW, font16)
+                text("", 0, 120, WHITE, font8)
+                text("Joy1BTN: Yes", 50, 140, GREEN, font8)
+                text("Joy2BTN: No", 55, 160, RED, font8)
+                
+                confirm = False
+                while True:
+                    if joy1.btn_pressed():
+                        confirm = True
+                        sound_select()
+                        break
+                    elif joy2.btn_pressed():
+                        sound_back()
+                        break
+                    time.sleep_ms(50)
+                
+                if confirm:
+                    setup_firebase_account()
+        
+        elif joy2.btn_pressed():
+            sound_back()
+            return
+        
+        time.sleep_ms(50)
+
 # === ГЛАВНОЕ МЕНЮ ===
 def main_menu():
     mount_sd()
