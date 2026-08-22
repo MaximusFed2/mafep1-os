@@ -1796,12 +1796,12 @@ def main_menu():
     mount_sd()
     
     menu_items = [
-    ("Games & Apps", apps_menu, GREEN),
-    ("GitHub Catalog", github_catalog, CYAN),
-    ("Google Drive", google_drive_browser, BLUE),
-    ("WiFi Update", wifi_update, YELLOW),
-    ("Settings", wifi_settings, RED),
-    ("About", about_screen, WHITE),
+        ("Games & Apps", apps_menu, GREEN),
+        ("GitHub Catalog", github_catalog, CYAN),
+        ("Firebase Sync", firebase_menu, BLUE),  # <-- НОВОЕ!
+        ("WiFi Update", wifi_update, YELLOW),
+        ("Settings", wifi_settings, RED),
+        ("About", about_screen, WHITE),
     ]
     
     selected = 0
@@ -1812,12 +1812,12 @@ def main_menu():
     
     while True:
         clear()
-        draw_status_bar("MaFe P1 OS v0.6")
+        draw_status_bar("MaFe P1 OS v0.9")  # <-- ОБНОВИ ВЕРСИЮ!
         
         text("MaFe P1", 70, 40, CYAN, font16)
         
         for i, (name, _, color) in enumerate(menu_items):
-            y = 75 + i * 35
+            y = 70 + i * 32
             if i == selected:
                 display.fill_rect(30, y-5, 180, 30, MEDIUM_BLUE)
                 display.rect(30, y-5, 180, 30, color)
@@ -1845,7 +1845,7 @@ def main_menu():
                 mount_sd()
         
         time.sleep_ms(50)
-
+      
 # === ЗАПУСК ===
 print("MaFe P1 OS v0.6 starting...")
 print("Controls: Joy1=Nav, Joy1BTN=OK, Joy2BTN=Back")
