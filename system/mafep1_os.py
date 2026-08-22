@@ -425,89 +425,130 @@ def keyboard_input(title="Enter text", default=""):
         
         time.sleep_ms(50)
 
-# === GOOGLE DRIVE BROWSER ===
+# === GOOGLE DRIVE С ИЗБРАННЫМИ ФАЙЛАМИ ===
 def google_drive_browser():
+    # Список избранных файлов (можно расширять)
+    favorites = [
+        ("Snake Game", "1ABC123_file_id_here"),
+        ("Tetris", "1DEF456_file_id_here"),
+        ("Custom File", ""),  # Пустой = ручной ввод
+    ]
+    
     clear()
     draw_status_bar("Google Drive")
-    text("Enter File ID:", 50, 60, WHITE, font16)
-    text("From URL:", 60, 90, YELLOW, font8)
-    text("drive.google.com/file/d/", 30, 105, CYAN, font8)
+    text("Select file:", 50, 50, WHITE, font16)
     
-    file_id = keyboard_input("Google Drive File ID")
+    selected = 0
     
-    if not file_id:
-        sound_back()
-        return
-    
-    download_url = "https://drive.google.com/uc?export=download&id=" + file_id
-    
-    clear()
-    draw_status_bar("Downloading...")
-    text("Connecting...", 60, 80, YELLOW, font16)
-    
-    ssid, password = load_wifi_config()
-    if not ssid:
-        ssid = "MaximusFed2WiFi"
-        password = "57256062"
-    
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    wlan.connect(ssid, password)
-    
-    for i in range(20):
-        if wlan.isconnected():
-            break
-        text(".", 100 + i*5, 120, GREEN, font8)
-        time.sleep_ms(500)
-    
-    if not wlan.isconnected():
-        sound_error()
-        text("WiFi failed!", 60, 150, RED, font16)
-        time.sleep_ms(2000)
-        wlan.active(False)
-        return
-    
-    try:
-        import urequests
+    while True:
+        clear()
+        draw_status_bar("Google Drive")
         
-        text("Downloading...", 50, 150, CYAN, font16)
+        for i, (name, file_id) in enumerate(favorites):
+            y = 70 + i * 35
+            if i == selected:
+                display.fill_rect(10, y-5, 220, 30, MEDIUM_BLUE)
+                display.rect(10, y-5, 220, 30, CYAN)
+                text(name, 20, y+5, CYAN, font16)
+            else:
+                text(name, 20, y+5, WHITE, font16)
         
-        response = urequests.get(download_url)
+        draw_hints()
         
-        if response.status_code == 200:
-            filename = "downloaded_" + str(time.ticks_ms()) + ".py"
-            
-            save_name = keyboard_input("Save as:", filename)
-            if not save_name:
-                save_name = filename
-            
-            filepath = "/sd/downloads/" + save_name
-            try:
-                os.mkdir("/sd/downloads")
-            except:
-                pass
-            
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            
+        direction = joy1.read()
+        
+        if direction == 'up' and selected > 0:
+            selected -= 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif direction == 'down' and selected < len(favorites) - 1:
+            selected += 1
+            sound_nav()
+            time.sleep_ms(150)
+        elif joy1.btn_pressed():
+            name, file_id = favorites[selected]
             sound_select()
-            text("Saved!", 80, 180, GREEN, font16)
-            text(save_name, 50, 200, WHITE, font8)
-            time.sleep_ms(2000)
-        else:
-            sound_error()
-            text("Error " + str(response.status_code), 40, 150, RED, font16)
-            time.sleep_ms(2000)
+            
+            if not file_id:
+                # Ручной ввод
+                file_id = keyboard_input("Enter File ID")
+                if not file_id:
+                    continue
+            
+            # Скачивание
+            download_url = "https://drive.google.com/uc?export=download&id=" + file_id
+            
+            clear()
+            draw_status_bar("Downloading...")
+            text("Connecting...", 60, 80, YELLOW, font16)
+            
+            ssid, password = load_wifi_config()
+            if not ssid:
+                ssid = "MaximusFed2WiFi"
+                password = "57256062"
+            
+            wlan = network.WLAN(network.STA_IF)
+            wlan.active(True)
+            wlan.connect(ssid, password)
+            
+            for i in range(20):
+                if wlan.isconnected():
+                    break
+                text(".", 100 + i*5, 120, GREEN, font8)
+                time.sleep_ms(500)
+            
+            if not wlan.isconnected():
+                sound_error()
+                text("WiFi failed!", 60, 150, RED, font16)
+                time.sleep_ms(2000)
+                wlan.active(False)
+                continue
+            
+            try:
+                import urequests
+                
+                text("Downloading...", 50, 150, CYAN, font16)
+                
+                response = urequests.get(download_url)
+                
+                if response.status_code == 200:
+                    save_name = keyboard_input("Save as:", name + ".py")
+                    if not save_name:
+                        save_name = name + ".py"
+                    
+                    filepath = "/sd/downloads/" + save_name
+                    try:
+                        os.mkdir("/sd/downloads")
+                    except:
+                        pass
+                    
+                    with open(filepath, 'wb') as f:
+                        f.write(response.content)
+                    
+                    sound_select()
+                    text("Saved!", 80, 180, GREEN, font16)
+                    text(save_name, 50, 200, WHITE, font8)
+                    time.sleep_ms(2000)
+                else:
+                    sound_error()
+                    text("Error " + str(response.status_code), 40, 150, RED, font16)
+                    time.sleep_ms(2000)
+                
+                response.close()
+                
+            except Exception as e:
+                sound_error()
+                text("Error: " + str(e)[:20], 40, 150, RED, font16)
+                time.sleep_ms(2000)
+            
+            wlan.disconnect()
+            wlan.active(False)
         
-        response.close()
+        elif joy2.btn_pressed():
+            sound_back()
+            return
         
-    except Exception as e:
-        sound_error()
-        text("Error: " + str(e)[:20], 40, 150, RED, font16)
-        time.sleep_ms(2000)
-    
-    wlan.disconnect()
-    wlan.active(False)
+        time.sleep_ms(50)
 
 # === WEBREPL APP ===
 def webrepl_app():
