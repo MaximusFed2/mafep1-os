@@ -259,7 +259,7 @@ def wifi_update():
     WIFI_SSID = "MaximusFed2WiFi"
     WIFI_PASS = "57256062"
     
-    GITHUB_URL = "https://raw.githubusercontent.com/MaximusFed2/mafep1-os/main/system/mafep1_os.py"
+    GITHUB_URL = "https://raw.githubusercontent.com/MaximusFed2/mafep1-os/refs/heads/main/system/mafep1_os.py"
     
     try:
         wlan = network.WLAN(network.STA_IF)
