@@ -1,4 +1,4 @@
-# MaFe P1 OS v0.8
+# MaFe P1 OS v0.9
 # WebREPL + FTP + BLE + Google Drive + Symbols Keyboard + Fixed WiFi Save
 
 import machine, time, os, network, gc, json, socket, struct
@@ -260,34 +260,209 @@ def keyboard_input(title="Enter text", default=""):
                 sound_nav()
             elif not in_special and row == 4:
                 in_special = True
+
+
+# === КЛАВИАТУРА v2 (ЗАГЛАВНЫЕ + "/" + важные символы) ===
+def keyboard_input(title="Enter text", default=""):
+    # 5 строк: буквы + заглавные + цифры + символы
+    layouts_lower = [
+        "qwertyuiop",
+        "asdfghjkl",
+        "zxcvbnm",
+    ]
+    layouts_upper = [
+        "QWERTYUIOP",
+        "ASDFGHJKL",
+        "ZXCVBNM",
+    ]
+    layouts_numbers = "1234567890"
+    layouts_symbols = "/._-:;!?()[]"  # <-- "/" ПЕРВЫМ!
+    
+    special_keys = ["SPACE", "BACK", "SHIFT", "OK", "CANCEL"]
+    
+    text_result = default
+    row = 0
+    col = 0
+    special_idx = 0
+    mode = 0  # 0=строчные, 1=заглавные, 2=цифры, 3=символы, 4=special
+    shift_active = False  # однократный shift
+    
+    def get_current_layouts():
+        if mode == 0:
+            return layouts_lower
+        elif mode == 1:
+            return layouts_upper
+        return None
+    
+    while True:
+        clear()
+        draw_status_bar(title)
+        
+        # Поле ввода
+        display.fill_rect(10, 35, 220, 30, MEDIUM_BLUE)
+        display.rect(10, 35, 220, 30, CYAN)
+        
+        display_text = text_result[-18:] if len(text_result) > 18 else text_result
+        text(display_text, 15, 42, WHITE, font16)
+        
+        # Режим в статус-баре
+        mode_names = ["abc", "ABC", "123", "#+=", "KEYS"]
+        text(mode_names[mode] if mode < 4 else "", 180, 5, YELLOW, font8)
+        if shift_active:
+            text("SHIFT", 200, 5, GREEN, font8)
+        
+        # Рисуем клавиатуру
+        current_layouts = get_current_layouts()
+        
+        if current_layouts:
+            # Режим букв (строчные/заглавные)
+            key_y = 72
+            for r in range(3):
+                layout = current_layouts[r]
+                key_x = 5
+                for c, char in enumerate(layout):
+                    width = 22
+                    height = 20
+                    
+                    if mode < 2 and r == row and c == col:
+                        display.fill_rect(key_x, key_y, width, height, CYAN)
+                        text_color = BLACK
+                    else:
+                        display.fill_rect(key_x, key_y, width, height, DARK_BLUE)
+                        text_color = WHITE
+                    
+                    display.rect(key_x, key_y, width, height, CYAN)
+                    text(char, key_x + 6, key_y + 3, text_color, font8)
+                    key_x += width + 2
+                key_y += 22
+        else:
+            # Режим цифр или символов (одна строка)
+            layout = layouts_numbers if mode == 2 else layouts_symbols
+            key_y = 72
+            key_x = 5
+            for c, char in enumerate(layout):
+                width = 22
+                height = 20
+                
+                if r == 0 and c == col and mode < 4:
+                    display.fill_rect(key_x, key_y, width, height, CYAN)
+                    text_color = BLACK
+                else:
+                    display.fill_rect(key_x, key_y, width, height, DARK_BLUE)
+                    text_color = WHITE
+                
+                display.rect(key_x, key_y, width, height, CYAN)
+                text(char, key_x + 6, key_y + 3, text_color, font8)
+                key_x += width + 2
+        
+        # Специальные клавиши
+        key_y = 175
+        key_x = 5
+        for i, key in enumerate(special_keys):
+            width = 44
+            height = 20
+            
+            if mode == 4 and i == special_idx:
+                display.fill_rect(key_x, key_y, width, height, CYAN)
+                text_color = BLACK
+            else:
+                display.fill_rect(key_x, key_y, width, height, DARK_BLUE)
+                text_color = WHITE
+            
+            display.rect(key_x, key_y, width, height, CYAN)
+            text(key, key_x + 3, key_y + 3, text_color, font8)
+            key_x += width + 2
+        
+        draw_hints()
+        
+        direction = joy1.read()
+        
+        if direction == 'up':
+            if mode == 4:
+                mode = 3
+                col = 0
+                sound_nav()
+            elif mode == 3:
+                mode = 2
+                col = 0
+                sound_nav()
+            elif mode == 2:
+                mode = 1 if shift_active else 0
+                col = min(col, 9)
+                sound_nav()
+            elif mode == 1 and row > 0:
+                row -= 1
+                col = min(col, len(layouts_upper[row]) - 1)
+                sound_nav()
+            elif mode == 0 and row > 0:
+                row -= 1
+                col = min(col, len(layouts_lower[row]) - 1)
+                sound_nav()
+            time.sleep_ms(150)
+        
+        elif direction == 'down':
+            if mode == 0 and row < 2:
+                row += 1
+                col = min(col, len(layouts_lower[row]) - 1)
+                sound_nav()
+            elif mode == 1 and row < 2:
+                row += 1
+                col = min(col, len(layouts_upper[row]) - 1)
+                sound_nav()
+            elif mode in (0, 1) and row == 2:
+                mode = 2
+                col = 0
+                sound_nav()
+            elif mode == 2:
+                mode = 3
+                col = 0
+                sound_nav()
+            elif mode == 3:
+                mode = 4
                 special_idx = 0
                 sound_nav()
             time.sleep_ms(150)
         
         elif direction == 'left':
-            if in_special:
-                if special_idx > 0:
-                    special_idx -= 1
-                    sound_nav()
-            else:
+            if mode < 2:
                 if col > 0:
                     col -= 1
+                    sound_nav()
+            elif mode in (2, 3):
+                if col > 0:
+                    col -= 1
+                    sound_nav()
+            elif mode == 4:
+                if special_idx > 0:
+                    special_idx -= 1
                     sound_nav()
             time.sleep_ms(150)
         
         elif direction == 'right':
-            if in_special:
+            if mode == 0:
+                if col < len(layouts_lower[row]) - 1:
+                    col += 1
+                    sound_nav()
+            elif mode == 1:
+                if col < len(layouts_upper[row]) - 1:
+                    col += 1
+                    sound_nav()
+            elif mode == 2:
+                if col < len(layouts_numbers) - 1:
+                    col += 1
+                    sound_nav()
+            elif mode == 3:
+                if col < len(layouts_symbols) - 1:
+                    col += 1
+                    sound_nav()
+            elif mode == 4:
                 if special_idx < len(special_keys) - 1:
                     special_idx += 1
-                    sound_nav()
-            else:
-                if col < len(layouts[row]) - 1:
-                    col += 1
                     sound_nav()
             time.sleep_ms(150)
         
         elif joy1.btn_pressed():
-            if in_special:
+            if mode == 4:
                 key = special_keys[special_idx]
                 if key == "SPACE":
                     text_result += " "
@@ -295,6 +470,11 @@ def keyboard_input(title="Enter text", default=""):
                 elif key == "BACK":
                     text_result = text_result[:-1]
                     sound_back()
+                elif key == "SHIFT":
+                    shift_active = not shift_active
+                    mode = 1 if shift_active else 0
+                    row = 0
+                    sound_select()
                 elif key == "OK":
                     sound_select()
                     return text_result
@@ -302,9 +482,23 @@ def keyboard_input(title="Enter text", default=""):
                     sound_back()
                     return default
             else:
-                char = layouts[row][col]
+                if mode == 0:
+                    char = layouts_lower[row][col]
+                elif mode == 1:
+                    char = layouts_upper[row][col]
+                elif mode == 2:
+                    char = layouts_numbers[col]
+                elif mode == 3:
+                    char = layouts_symbols[col]
+                
                 text_result += char
                 sound_select()
+                
+                # Shift срабатывает один раз
+                if shift_active and mode == 1:
+                    shift_active = False
+                    mode = 0
+                
                 time.sleep_ms(100)
         
         elif joy2.btn_pressed():
