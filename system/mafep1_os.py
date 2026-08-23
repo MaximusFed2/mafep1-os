@@ -1,4 +1,4 @@
-# MaFe P1 OS v1.3
+# MaFe P1 OS v1.4
 # Fixes: Screen flickering, Error wrapping, Left-aligned text, FTP crash
 
 import machine, time, os, network, gc
