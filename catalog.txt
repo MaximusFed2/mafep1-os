@@ -1,1 +1,1 @@
-ftp_server|https://raw.githubusercontent.com/MaximusFed2/mafep1-os/refs/heads/main/games/ftp_server.py|1.0
+ftp_server|https://raw.githubusercontent.com/MaximusFed2/mafep1-os/refs/heads/main/games/ftp_server.py|1.1
