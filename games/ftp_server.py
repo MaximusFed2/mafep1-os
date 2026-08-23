@@ -1,6 +1,5 @@
-# ftp_server.py - FTP Server for ESP32 MicroPython
-# Compatible with MicroPython (no socket.timeout attribute)
-# Supports: PASV mode, LIST, RETR, STOR, DELE, MKD, RMD, PWD, CWD
+# ftp_server.py - FTP Server with AP Mode for ESP32 MicroPython
+# Создаёт собственную WiFi точку доступа для подключения
 
 import machine, time, os, network, socket, gc
 
@@ -10,7 +9,14 @@ PASV_PORT_START = 50000
 PASV_PORT_END = 50100
 BUFFER_SIZE = 1024
 
-# === ДИСПЛЕЙ (если доступен) ===
+# Настройки точки доступа
+AP_SSID = "MaFeP1-FTP"
+AP_PASSWORD = "12345678"  # Минимум 8 символов!
+AP_CHANNEL = 1
+AP_HIDDEN = False
+AP_MAX_CLIENTS = 4
+
+# === ДИСПЛЕЙ ===
 try:
     import st7789, vga1_16x16 as font16, vga1_8x8 as font8
     HAS_DISPLAY = True
@@ -30,6 +36,7 @@ if HAS_DISPLAY:
     GREEN = 0x07E0
     WHITE = 0xFFFF
     YELLOW = 0xFFE0
+    RED = 0xF800
     MEDIUM_BLUE = 0x0022
     
     def clear(): display.fill(BLACK)
@@ -66,21 +73,50 @@ def mount_sd():
         print("SD mount error:", e)
         return False
 
-# === ПОЛУЧИТЬ IP ===
-def get_ip():
-    try:
-        wlan = network.WLAN(network.STA_IF)
-        if wlan.isconnected():
-            return wlan.ifconfig()[0]
-    except:
-        pass
+# === СОЗДАНИЕ ТОЧКИ ДОСТУПА ===
+def start_ap():
+    """Создаёт WiFi точку доступа"""
+    ap = network.WLAN(network.AP_IF)
+    ap.active(True)
+    ap.config(essid=AP_SSID, 
+              password=AP_PASSWORD,
+              channel=AP_CHANNEL,
+              hidden=AP_HIDDEN,
+              max_clients=AP_MAX_CLIENTS)
+    
+    # Ждём активации
+    time.sleep_ms(500)
+    
+    # Получаем IP точки доступа
+    ip = ap.ifconfig()[0]
+    print("AP created:", AP_SSID)
+    print("AP IP:", ip)
+    print("AP Password:", AP_PASSWORD)
+    
+    return ip
+
+# === ПОЛУЧИТЬ ВСЕ IP ===
+def get_all_ips():
+    """Возвращает список всех IP адресов"""
+    ips = []
+    
+    # AP интерфейс
     try:
         ap = network.WLAN(network.AP_IF)
         if ap.active():
-            return ap.ifconfig()[0]
+            ips.append(("AP", ap.ifconfig()[0]))
     except:
         pass
-    return "192.168.4.1"
+    
+    # STA интерфейс
+    try:
+        sta = network.WLAN(network.STA_IF)
+        if sta.isconnected():
+            ips.append(("STA", sta.ifconfig()[0]))
+    except:
+        pass
+    
+    return ips
 
 # === ПОЛУЧИТЬ СВОБОДНЫЙ ПОРТ ДЛЯ PASV ===
 def get_pasv_port():
@@ -109,7 +145,6 @@ class FTPClient:
         self.binary_mode = True
         self.logged_in = False
         
-        # Приветствие
         self.send_response(220, "MaFeP1 FTP Server ready")
     
     def send_response(self, code, msg):
@@ -120,7 +155,6 @@ class FTPClient:
             print("Send error:", e)
     
     def send_data(self, data):
-        """Отправляет данные через data socket"""
         if self.data_sock is None:
             return False
         try:
@@ -139,7 +173,6 @@ class FTPClient:
             return False
     
     def open_data_connection(self):
-        """Открывает соединение для передачи данных (PASV режим)"""
         try:
             if self.data_sock:
                 try: self.data_sock.close()
@@ -166,20 +199,17 @@ class FTPClient:
             self.data_sock = None
     
     def get_full_path(self, path):
-        """Возвращает полный путь"""
         if path.startswith('/'):
             return path
         return self.current_dir + '/' + path
     
     def handle_command(self, line):
-        """Обрабатывает FTP команду"""
         parts = line.split(' ', 1)
         cmd = parts[0].upper()
         arg = parts[1].strip() if len(parts) > 1 else ''
         
         print("CMD:", cmd, "ARG:", arg)
         
-        # === АУТЕНТИФИКАЦИЯ ===
         if cmd == 'USER':
             self.username = arg
             self.send_response(331, "Password required")
@@ -189,21 +219,19 @@ class FTPClient:
             self.logged_in = True
             self.send_response(230, "User logged in")
         
-        # === СИСТЕМНАЯ ИНФОРМАЦИЯ ===
         elif cmd == 'SYST':
             self.send_response(215, "UNIX Type: L8")
         
         elif cmd == 'TYPE':
             if arg.upper() == 'I':
                 self.binary_mode = True
-                self.send_response(200, "Type set to I (Binary)")
+                self.send_response(200, "Type set to I")
             elif arg.upper() == 'A':
                 self.binary_mode = False
-                self.send_response(200, "Type set to A (ASCII)")
+                self.send_response(200, "Type set to A")
             else:
                 self.send_response(504, "Type not implemented")
         
-        # === НАВИГАЦИЯ ===
         elif cmd == 'PWD':
             self.send_response(257, '"' + self.current_dir + '"')
         
@@ -222,7 +250,6 @@ class FTPClient:
                 self.current_dir = parts[0] if parts[0] else '/sd'
             self.send_response(250, "Directory changed")
         
-        # === СПИСКИ ===
         elif cmd == 'LIST' or cmd == 'NLST':
             self.send_response(150, "Opening data connection")
             if self.open_data_connection():
@@ -246,7 +273,6 @@ class FTPClient:
             else:
                 self.send_response(425, "Can't open data connection")
         
-        # === ПЕРЕДАЧА ФАЙЛОВ ===
         elif cmd == 'RETR':
             filepath = self.get_full_path(arg)
             self.send_response(150, "Opening data connection")
@@ -280,7 +306,7 @@ class FTPClient:
                                 f.write(chunk)
                             except OSError as e:
                                 err_code = e.args[0] if e.args else None
-                                if err_code not in (110, 11, 'ETIMEDOUT', 'EAGAIN'):
+                                if err_code not in (110, 11, 116, 'ETIMEDOUT', 'EAGAIN'):
                                     raise
                                 break
                     self.send_response(226, "Transfer complete")
@@ -291,7 +317,6 @@ class FTPClient:
             else:
                 self.send_response(425, "Can't open data connection")
         
-        # === УПРАВЛЕНИЕ ФАЙЛАМИ ===
         elif cmd == 'DELE':
             filepath = self.get_full_path(arg)
             try:
@@ -324,10 +349,8 @@ class FTPClient:
             except:
                 self.send_response(550, "File not found")
         
-        # === PASV РЕЖИМ ===
         elif cmd == 'PASV':
             self.pasv_port = get_pasv_port()
-            # Формат: (h1,h2,h3,h4,p1,p2)
             ip_parts = self.server_ip.split('.')
             p1 = self.pasv_port // 256
             p2 = self.pasv_port % 256
@@ -337,23 +360,19 @@ class FTPClient:
             )
             self.send_response(227, "Entering Passive Mode " + pasv_response)
         
-        # === PORT РЕЖИМ (упрощенно) ===
         elif cmd == 'PORT':
             self.send_response(200, "PORT mode not supported, use PASV")
         
-        # === ЗАВЕРШЕНИЕ ===
         elif cmd == 'QUIT':
             self.send_response(221, "Goodbye")
             return False
         
-        # === НЕИЗВЕСТНАЯ КОМАНДА ===
         else:
             self.send_response(502, "Command not implemented")
         
         return True
     
     def run(self):
-        """Главный цикл обработки клиента"""
         print("Client connected:", self.addr)
         self.client.settimeout(120)
         
@@ -371,7 +390,7 @@ class FTPClient:
                                 break
                         except OSError as e:
                             err_code = e.args[0] if e.args else None
-                            if err_code in (110, 11, 'ETIMEDOUT', 'EAGAIN'):
+                            if err_code in (110, 11, 116, 'ETIMEDOUT', 'EAGAIN'):
                                 continue
                             raise
                     
@@ -379,19 +398,18 @@ class FTPClient:
                         return
                     
                     line = data.decode('utf-8', 'ignore').strip()
-                    if not line:
-                        continue
-                    
-                    # Убираем \r если есть
                     if line.endswith('\r'):
                         line = line[:-1]
+                    
+                    if not line:
+                        continue
                     
                     if not self.handle_command(line):
                         break
                 
                 except OSError as e:
                     err_code = e.args[0] if e.args else None
-                    if err_code in (110, 11, 'ETIMEDOUT', 'EAGAIN'):
+                    if err_code in (110, 11, 116, 'ETIMEDOUT', 'EAGAIN'):
                         continue
                     print("Client error:", e)
                     break
@@ -410,24 +428,34 @@ class FTPServer:
     def __init__(self):
         self.server_sock = None
         self.running = False
+        self.ap_ip = None
     
     def start(self):
-        """Запускает FTP сервер"""
         mount_sd()
-        ip = get_ip()
         
-        print("FTP Server starting on", ip + ":" + str(FTP_PORT))
+        # Создаём точку доступа
+        print("Creating AP...")
+        self.ap_ip = start_ap()
+        
+        # Получаем все IP
+        all_ips = get_all_ips()
+        
+        print("FTP Server starting...")
+        for iface, ip in all_ips:
+            print(f"  {iface}: {ip}:{FTP_PORT}")
         
         if HAS_DISPLAY:
             clear()
             draw_status_bar("FTP Server")
-            text("Running...", 10, 50, GREEN)
-            text("IP: " + ip, 10, 80, WHITE)
-            text("Port: " + str(FTP_PORT), 10, 100, WHITE)
+            text("WiFi: " + AP_SSID, 10, 40, CYAN)
+            text("Pass: " + AP_PASSWORD, 10, 60, WHITE)
+            text("", 0, 75, WHITE)
+            text("IP: " + self.ap_ip, 10, 85, GREEN)
+            text("Port: " + str(FTP_PORT), 10, 105, WHITE)
             text("", 0, 120, WHITE)
-            text("Use AndFTP or", 10, 130, YELLOW)
-            text("CX File Explorer", 10, 145, YELLOW)
-            text("", 0, 165, WHITE)
+            text("Connect:", 10, 130, YELLOW)
+            text(self.ap_ip + ":21", 10, 145, GREEN)
+            text("", 0, 160, WHITE)
             text("Joy2BTN: Stop", 10, 180, WHITE)
         
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -437,9 +465,9 @@ class FTPServer:
         self.server_sock.settimeout(2)
         
         self.running = True
+        client_count = 0
         
         while self.running:
-            # Проверяем кнопку выхода
             if joy2_btn and joy2_btn.value() == 0:
                 time.sleep_ms(300)
                 if joy2_btn.value() == 0:
@@ -448,17 +476,17 @@ class FTPServer:
             
             try:
                 client_sock, addr = self.server_sock.accept()
-                print("New connection from:", addr)
+                client_count += 1
+                print("Client #" + str(client_count) + " from:", addr)
                 
-                # Обрабатываем клиента
-                client = FTPClient(client_sock, addr, ip)
+                client = FTPClient(client_sock, addr, self.ap_ip)
                 client.run()
                 
                 gc.collect()
             
             except OSError as e:
                 err_code = e.args[0] if e.args else None
-                if err_code not in (110, 11, 'ETIMEDOUT', 'EAGAIN'):
+                if err_code not in (110, 11, 116, 'ETIMEDOUT', 'EAGAIN'):
                     print("Accept error:", e)
             except Exception as e:
                 print("Server error:", e)
@@ -466,13 +494,21 @@ class FTPServer:
         self.stop()
     
     def stop(self):
-        """Останавливает сервер"""
         self.running = False
         if self.server_sock:
             try:
                 self.server_sock.close()
             except:
                 pass
+        
+        # Отключаем AP
+        try:
+            ap = network.WLAN(network.AP_IF)
+            ap.active(False)
+            print("AP disabled")
+        except:
+            pass
+        
         print("FTP server stopped")
         
         if HAS_DISPLAY:
@@ -482,7 +518,8 @@ class FTPServer:
             time.sleep_ms(1500)
 
 # === ЗАПУСК ===
-print("MaFeP1 FTP Server v1.0")
+print("MaFeP1 FTP Server v1.1")
+print("With AP Mode")
 print("Starting...")
 
 server = FTPServer()
