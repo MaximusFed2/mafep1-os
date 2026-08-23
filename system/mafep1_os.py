@@ -1,7 +1,7 @@
 # MaFe P1 OS v1.4
-# Fixes: Screen flickering, Error wrapping, Left-aligned text, FTP crash
+# Features: No flicker, Wrapped errors, Left-aligned, Firebase Multi-Game, GitHub Catalog, Graphical Menu Launcher
 
-import machine, time, os, network, gc
+import machine, time, os, network, gc, ubinascii
 import st7789, vga1_16x16 as font16, vga1_8x8 as font8
 
 # === ДИСПЛЕЙ ===
@@ -85,10 +85,8 @@ def draw_hints():
     text("Joy1BTN:OK", 70, 220, GREEN, font8)
     text("Joy2BTN:Back", 140, 220, RED, font8)
 
-# === НОВАЯ ФУНКЦИЯ: Перенос длинного текста ===
 def draw_wrapped_text(msg, x, y, color=WHITE, font=font8):
-    """Автоматически переносит длинный текст на новую строку"""
-    max_chars = 26 # Для font8 (8px * 26 = 208px)
+    max_chars = 26
     lines = [msg[i:i+max_chars] for i in range(0, len(msg), max_chars)]
     for line in lines:
         text(line, x, y, color, font)
@@ -133,7 +131,6 @@ def launch_file(path):
         draw_status_bar("Error!")
         text("Failed:", 10, 40, RED, font16)
         text(name[:15], 10, 60, WHITE, font16)
-        # Используем перенос текста для ошибки
         draw_wrapped_text(str(e), 10, 90, YELLOW, font8)
         text("Joy2BTN: Back", 10, 210, WHITE, font8)
         while True:
@@ -157,32 +154,48 @@ def keyboard_input(title="Enter text", default=""):
         elif mode == 1: return layouts_upper
         return None
 
+    needs_redraw = True
     while True:
-        clear()
-        draw_status_bar(title)
-        display.fill_rect(10, 35, 220, 30, MEDIUM_BLUE)
-        display.rect(10, 35, 220, 30, CYAN)
-        
-        display_text = text_result
-        if len(display_text) > 18:
-            if cursor_pos < 9: display_text = display_text[:18]
-            elif cursor_pos > len(display_text) - 9: display_text = display_text[-18:]
-            else: display_text = display_text[cursor_pos-9:cursor_pos+9]
-        text(display_text, 15, 42, WHITE, font16)
-        
-        mode_names = ["abc", "ABC", "123", "#+=", "KEYS"]
-        text(mode_names[mode] if mode < 4 else "", 180, 5, YELLOW, font8)
-        if shift_active: text("SHIFT", 200, 5, GREEN, font8)
-        
-        current_layouts = get_current_layouts()
-        if current_layouts:
-            key_y = 72
-            for r in range(3):
-                layout = current_layouts[r]
-                key_x = 5
+        if needs_redraw:
+            clear()
+            draw_status_bar(title)
+            display.fill_rect(10, 35, 220, 30, MEDIUM_BLUE)
+            display.rect(10, 35, 220, 30, CYAN)
+            
+            display_text = text_result
+            if len(display_text) > 18:
+                if cursor_pos < 9: display_text = display_text[:18]
+                elif cursor_pos > len(display_text) - 9: display_text = display_text[-18:]
+                else: display_text = display_text[cursor_pos-9:cursor_pos+9]
+            text(display_text, 15, 42, WHITE, font16)
+            
+            mode_names = ["abc", "ABC", "123", "#+=", "KEYS"]
+            text(mode_names[mode] if mode < 4 else "", 180, 5, YELLOW, font8)
+            if shift_active: text("SHIFT", 200, 5, GREEN, font8)
+            
+            current_layouts = get_current_layouts()
+            if current_layouts:
+                key_y = 72
+                for r in range(3):
+                    layout = current_layouts[r]
+                    key_x = 5
+                    for c, char in enumerate(layout):
+                        w, h = 22, 20
+                        if r == row and c == col:
+                            display.fill_rect(key_x, key_y, w, h, CYAN)
+                            text(char, key_x + 6, key_y + 3, BLACK, font8)
+                        else:
+                            display.fill_rect(key_x, key_y, w, h, DARK_BLUE)
+                            text(char, key_x + 6, key_y + 3, WHITE, font8)
+                        display.rect(key_x, key_y, w, h, CYAN)
+                        key_x += w + 2
+                    key_y += 22
+            else:
+                layout = layouts_numbers if mode == 2 else layouts_symbols
+                key_y, key_x = 72, 5
                 for c, char in enumerate(layout):
                     w, h = 22, 20
-                    if r == row and c == col:
+                    if c == col:
                         display.fill_rect(key_x, key_y, w, h, CYAN)
                         text(char, key_x + 6, key_y + 3, BLACK, font8)
                     else:
@@ -190,50 +203,37 @@ def keyboard_input(title="Enter text", default=""):
                         text(char, key_x + 6, key_y + 3, WHITE, font8)
                     display.rect(key_x, key_y, w, h, CYAN)
                     key_x += w + 2
-                key_y += 22
-        else:
-            layout = layouts_numbers if mode == 2 else layouts_symbols
-            key_y, key_x = 72, 5
-            for c, char in enumerate(layout):
-                w, h = 22, 20
-                if c == col:
+            
+            key_y, key_x = 175, 5
+            for i, key in enumerate(special_keys):
+                w, h = 44, 20
+                if mode == 4 and i == special_idx:
                     display.fill_rect(key_x, key_y, w, h, CYAN)
-                    text(char, key_x + 6, key_y + 3, BLACK, font8)
+                    text(key, key_x + 3, key_y + 3, BLACK, font8)
                 else:
                     display.fill_rect(key_x, key_y, w, h, DARK_BLUE)
-                    text(char, key_x + 6, key_y + 3, WHITE, font8)
+                    text(key, key_x + 3, key_y + 3, WHITE, font8)
                 display.rect(key_x, key_y, w, h, CYAN)
                 key_x += w + 2
-        
-        key_y, key_x = 175, 5
-        for i, key in enumerate(special_keys):
-            w, h = 44, 20
-            if mode == 4 and i == special_idx:
-                display.fill_rect(key_x, key_y, w, h, CYAN)
-                text(key, key_x + 3, key_y + 3, BLACK, font8)
-            else:
-                display.fill_rect(key_x, key_y, w, h, DARK_BLUE)
-                text(key, key_x + 3, key_y + 3, WHITE, font8)
-            display.rect(key_x, key_y, w, h, CYAN)
-            key_x += w + 2
-        
-        draw_hints()
+            
+            draw_hints()
+            needs_redraw = False
+
         direction = joy1.read()
-        
         if direction == 'up':
             if mode == 4: mode, col = 3, 0
             elif mode == 3: mode, col = 2, 0
             elif mode == 2: mode, col = (1 if shift_active else 0), min(col, 9)
             elif mode == 1 and row > 0: row -= 1; col = min(col, len(layouts_upper[row]) - 1)
             elif mode == 0 and row > 0: row -= 1; col = min(col, len(layouts_lower[row]) - 1)
-            sound_nav(); time.sleep_ms(16)
+            sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'down':
             if mode == 0 and row < 2: row += 1; col = min(col, len(layouts_lower[row]) - 1)
             elif mode == 1 and row < 2: row += 1; col = min(col, len(layouts_upper[row]) - 1)
             elif mode in (0, 1) and row == 2: mode, col = 2, 0
             elif mode == 2: mode, col = 3, 0
             elif mode == 3: mode, special_idx = 4, 0
-            sound_nav(); time.sleep_ms(16)
+            sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'left':
             if mode < 2:
                 if col > 0: col -= 1
@@ -241,7 +241,7 @@ def keyboard_input(title="Enter text", default=""):
                 if col > 0: col -= 1
             elif mode == 4:
                 if special_idx > 0: special_idx -= 1
-            sound_nav(); time.sleep_ms(16)
+            sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'right':
             if mode == 0:
                 if col < len(layouts_lower[row]) - 1: col += 1
@@ -253,7 +253,7 @@ def keyboard_input(title="Enter text", default=""):
                 if col < len(layouts_symbols) - 1: col += 1
             elif mode == 4:
                 if special_idx < len(special_keys) - 1: special_idx += 1
-            sound_nav(); time.sleep_ms(16)
+            sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif joy1.btn_pressed():
             if mode == 4:
                 key = special_keys[special_idx]
@@ -272,12 +272,12 @@ def keyboard_input(title="Enter text", default=""):
                 cursor_pos = len(text_result)
                 sound_select()
                 if shift_active and mode == 1: shift_active = False; mode = 0
-                time.sleep_ms(16)
+            needs_redraw = True
         elif joy2.btn_pressed():
             sound_back(); return default
-        time.sleep_ms(16)
+        time.sleep_ms(10)
 
-# === FIREBASE CLOUD SYNC v2 (Multi-Game) ===
+# === FIREBASE CLOUD SYNC ===
 FIREBASE_URL = "https://mafep1-saves-default-rtdb.europe-west1.firebasedatabase.app"
 FIREBASE_USER_FILE = '/sd/system/firebase_user.txt'
 SAVES_DIR = '/sd/saves'
@@ -359,25 +359,21 @@ def connect_wifi():
 def firebase_upload_save(game_name, slot_name):
     user_id, password = get_firebase_user()
     if not user_id or not password:
-        clear(); draw_status_bar("Error")
-        text("No account!", 10, 80, RED, font16)
-        time.sleep_ms(2000); return
+        clear(); draw_status_bar("Error"); text("No account!", 10, 80, RED, font16); time.sleep_ms(2000); return
     
     wlan = connect_wifi()
     clear(); draw_status_bar("Uploading...")
     if not wlan.isconnected():
-        sound_error(); text("WiFi failed!", 10, 100, RED, font16)
-        time.sleep_ms(2000); wlan.active(False); return
+        sound_error(); text("WiFi failed!", 10, 100, RED, font16); time.sleep_ms(2000); wlan.active(False); return
     
     filepath = SAVES_DIR + '/' + game_name + '/' + slot_name
     try:
         with open(filepath, 'rb') as f: save_data = f.read()
     except:
-        sound_error(); text("File not found!", 10, 100, RED, font16)
-        time.sleep_ms(2000); wlan.active(False); return
+        sound_error(); text("File not found!", 10, 100, RED, font16); time.sleep_ms(2000); wlan.active(False); return
     
     try:
-        import urequests, ubinascii
+        import urequests
         url = FIREBASE_URL + "/saves/" + user_id + "/" + game_name + "/" + slot_name + ".json"
         response = urequests.get(url)
         
@@ -385,8 +381,7 @@ def firebase_upload_save(game_name, slot_name):
             existing = response.json()
             if existing and 'password' in existing and existing['password'] != password:
                 sound_error(); clear(); draw_status_bar("Access Denied!")
-                text("User ID taken!", 10, 100, RED, font16)
-                time.sleep_ms(2000)
+                text("User ID taken!", 10, 100, RED, font16); time.sleep_ms(2000)
                 response.close(); wlan.disconnect(); wlan.active(False); return
         response.close()
         
@@ -400,26 +395,21 @@ def firebase_upload_save(game_name, slot_name):
         time.sleep_ms(2000)
         response.close()
     except Exception as e:
-        sound_error(); clear(); draw_status_bar("Error")
-        draw_wrapped_text(str(e), 10, 100, RED, font8)
-        time.sleep_ms(2000)
+        sound_error(); clear(); draw_status_bar("Error"); draw_wrapped_text(str(e), 10, 100, RED, font8); time.sleep_ms(2000)
     wlan.disconnect(); wlan.active(False)
 
 def firebase_download_save(game_name, slot_name):
     user_id, password = get_firebase_user()
     if not user_id or not password:
-        clear(); draw_status_bar("Error")
-        text("No account!", 10, 80, RED, font16)
-        time.sleep_ms(2000); return
+        clear(); draw_status_bar("Error"); text("No account!", 10, 80, RED, font16); time.sleep_ms(2000); return
     
     wlan = connect_wifi()
     clear(); draw_status_bar("Downloading...")
     if not wlan.isconnected():
-        sound_error(); text("WiFi failed!", 10, 100, RED, font16)
-        time.sleep_ms(2000); wlan.active(False); return
+        sound_error(); text("WiFi failed!", 10, 100, RED, font16); time.sleep_ms(2000); wlan.active(False); return
     
     try:
-        import urequests, ubinascii
+        import urequests
         url = FIREBASE_URL + "/saves/" + user_id + "/" + game_name + "/" + slot_name + ".json"
         response = urequests.get(url)
         
@@ -427,8 +417,7 @@ def firebase_download_save(game_name, slot_name):
             data = response.json()
             if data and 'password' in data and data['password'] != password:
                 sound_error(); clear(); draw_status_bar("Access Denied!")
-                text("Wrong pass!", 10, 100, RED, font16)
-                time.sleep_ms(2000)
+                text("Wrong pass!", 10, 100, RED, font16); time.sleep_ms(2000)
                 response.close(); wlan.disconnect(); wlan.active(False); return
             
             if data and 'data' in data:
@@ -437,52 +426,33 @@ def firebase_download_save(game_name, slot_name):
                 except: pass
                 with open(SAVES_DIR + '/' + game_name + '/' + slot_name, 'wb') as f: f.write(save_data)
                 sound_select(); clear(); draw_status_bar("Success!")
-                text("Downloaded!", 10, 100, GREEN, font16)
-                time.sleep_ms(2000)
+                text("Downloaded!", 10, 100, GREEN, font16); time.sleep_ms(2000)
             else:
-                sound_error(); clear(); draw_status_bar("No Save")
-                text("Not found", 10, 100, YELLOW, font16)
-                time.sleep_ms(2000)
+                sound_error(); clear(); draw_status_bar("No Save"); text("Not found", 10, 100, YELLOW, font16); time.sleep_ms(2000)
         else:
-            sound_error(); clear(); draw_status_bar("Error")
-            text("HTTP " + str(response.status_code), 10, 100, RED, font16)
-            time.sleep_ms(2000)
+            sound_error(); clear(); draw_status_bar("Error"); text("HTTP " + str(response.status_code), 10, 100, RED, font16); time.sleep_ms(2000)
         response.close()
     except Exception as e:
-        sound_error(); clear(); draw_status_bar("Error")
-        draw_wrapped_text(str(e), 10, 100, RED, font8)
-        time.sleep_ms(2000)
+        sound_error(); clear(); draw_status_bar("Error"); draw_wrapped_text(str(e), 10, 100, RED, font8); time.sleep_ms(2000)
     wlan.disconnect(); wlan.active(False)
 
 def firebase_select_slot(game_name, action):
     slots = get_save_slots(game_name)
     if not slots:
-        clear(); draw_status_bar("No Saves")
-        text("No slots for", 10, 80, YELLOW, font16)
-        text(game_name[:15], 10, 100, WHITE, font8)
-        time.sleep_ms(2000); return
+        clear(); draw_status_bar("No Saves"); text("No slots for", 10, 80, YELLOW, font16); text(game_name[:15], 10, 100, WHITE, font8); time.sleep_ms(2000); return
     
-    selected = 0
-    scroll_offset = 0
-    visible = 5
-    needs_redraw = True
+    selected, scroll_offset, visible, needs_redraw = 0, 0, 5, True
     
     while True:
         if needs_redraw:
-            clear(); draw_status_bar("Select Slot")
-            text(game_name[:15], 10, 35, CYAN, font16)
-            start_idx = scroll_offset
-            end_idx = min(len(slots), start_idx + visible)
+            clear(); draw_status_bar("Select Slot"); text(game_name[:15], 10, 35, CYAN, font16)
+            start_idx, end_idx = scroll_offset, min(len(slots), scroll_offset + visible)
             for i in range(start_idx, end_idx):
                 y = 60 + (i - start_idx) * 30
-                slot = slots[i]
                 name_color = CYAN if i == selected else WHITE
-                if i == selected:
-                    display.fill_rect(5, y-5, 230, 26, MEDIUM_BLUE)
-                    display.rect(5, y-5, 230, 26, CYAN)
-                text(slot[:18], 10, y+5, name_color, font16)
-            draw_hints()
-            needs_redraw = False
+                if i == selected: display.fill_rect(5, y-5, 230, 26, MEDIUM_BLUE); display.rect(5, y-5, 230, 26, CYAN)
+                text(slots[i][:18], 10, y+5, name_color, font16)
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0:
@@ -495,42 +465,29 @@ def firebase_select_slot(game_name, action):
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif joy1.btn_pressed():
             sound_select()
-            slot_name = slots[selected]
-            if action == 'upload': firebase_upload_save(game_name, slot_name)
-            elif action == 'download': firebase_download_save(game_name, slot_name)
+            if action == 'upload': firebase_upload_save(game_name, slots[selected])
+            elif action == 'download': firebase_download_save(game_name, slots[selected])
             return
-        elif joy2.btn_pressed():
-            sound_back(); return
+        elif joy2.btn_pressed(): sound_back(); return
         time.sleep_ms(10)
 
 def firebase_select_game(action):
     games = get_save_games()
     if not games:
-        clear(); draw_status_bar("No Games")
-        text("No saves in", 10, 80, YELLOW, font16)
-        text("/sd/saves/", 10, 100, WHITE, font8)
-        time.sleep_ms(2000); return
+        clear(); draw_status_bar("No Games"); text("No saves in", 10, 80, YELLOW, font16); text("/sd/saves/", 10, 100, WHITE, font8); time.sleep_ms(2000); return
     
-    selected = 0
-    scroll_offset = 0
-    visible = 5
-    needs_redraw = True
+    selected, scroll_offset, visible, needs_redraw = 0, 0, 5, True
     
     while True:
         if needs_redraw:
             clear(); draw_status_bar("Select Game")
-            start_idx = scroll_offset
-            end_idx = min(len(games), start_idx + visible)
+            start_idx, end_idx = scroll_offset, min(len(games), scroll_offset + visible)
             for i in range(start_idx, end_idx):
                 y = 50 + (i - start_idx) * 30
-                game = games[i]
                 name_color = CYAN if i == selected else WHITE
-                if i == selected:
-                    display.fill_rect(5, y-5, 230, 26, MEDIUM_BLUE)
-                    display.rect(5, y-5, 230, 26, CYAN)
-                text(game[:18], 10, y+5, name_color, font16)
-            draw_hints()
-            needs_redraw = False
+                if i == selected: display.fill_rect(5, y-5, 230, 26, MEDIUM_BLUE); display.rect(5, y-5, 230, 26, CYAN)
+                text(games[i][:18], 10, y+5, name_color, font16)
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0:
@@ -542,22 +499,17 @@ def firebase_select_game(action):
             if selected >= scroll_offset + visible: scroll_offset = selected - visible + 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif joy1.btn_pressed():
-            sound_select()
-            firebase_select_slot(games[selected], action)
-        elif joy2.btn_pressed():
-            sound_back(); return
+            sound_select(); firebase_select_slot(games[selected], action)
+        elif joy2.btn_pressed(): sound_back(); return
         time.sleep_ms(10)
 
 def firebase_account_info():
     user_id, password = get_firebase_user()
     clear(); draw_status_bar("Account Info")
     if user_id:
-        text("User ID:", 10, 60, WHITE, font16)
-        text(user_id[:20], 10, 90, CYAN, font16)
-        text("Password:", 10, 125, WHITE, font16)
-        text("*" * len(password), 10, 155, GREEN, font16)
-    else:
-        text("No account", 10, 100, RED, font16)
+        text("User ID:", 10, 60, WHITE, font16); text(user_id[:20], 10, 90, CYAN, font16)
+        text("Password:", 10, 125, WHITE, font16); text("*" * len(password), 10, 155, GREEN, font16)
+    else: text("No account", 10, 100, RED, font16)
     text("Joy2BTN: Back", 10, 210, WHITE, font8)
     while True:
         if joy2.btn_pressed(): sound_back(); return
@@ -565,8 +517,7 @@ def firebase_account_info():
 
 def firebase_menu():
     menu_items = [("Upload Save", GREEN), ("Download Save", CYAN), ("Account Info", YELLOW), ("Change Account", WHITE)]
-    selected = 0
-    needs_redraw = True
+    selected, needs_redraw = 0, True
     
     while True:
         if needs_redraw:
@@ -575,13 +526,9 @@ def firebase_menu():
             text("User: " + (user_id[:12] if user_id else "None"), 10, 40, GREEN if user_id else RED, font8)
             for i, (name, color) in enumerate(menu_items):
                 y = 60 + i * 30
-                if i == selected:
-                    display.fill_rect(5, y-5, 230, 28, MEDIUM_BLUE)
-                    display.rect(5, y-5, 230, 28, color)
-                    text(name, 10, y+5, color, font16)
+                if i == selected: display.fill_rect(5, y-5, 230, 28, MEDIUM_BLUE); display.rect(5, y-5, 230, 28, color); text(name, 10, y+5, color, font16)
                 else: text(name, 10, y+5, WHITE, font16)
-            draw_hints()
-            needs_redraw = False
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0: selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
@@ -592,11 +539,8 @@ def firebase_menu():
             elif selected == 1: firebase_select_game('download')
             elif selected == 2: firebase_account_info()
             elif selected == 3:
-                clear(); draw_status_bar("Change?")
-                text("Erase current", 10, 80, YELLOW, font16)
-                text("account?", 10, 100, YELLOW, font16)
-                text("Joy1BTN: Yes", 10, 140, GREEN, font8)
-                text("Joy2BTN: No", 10, 160, RED, font8)
+                clear(); draw_status_bar("Change?"); text("Erase current", 10, 80, YELLOW, font16); text("account?", 10, 100, YELLOW, font16)
+                text("Joy1BTN: Yes", 10, 140, GREEN, font8); text("Joy2BTN: No", 10, 160, RED, font8)
                 confirm = False
                 while True:
                     if joy1.btn_pressed(): confirm = True; sound_select(); break
@@ -613,38 +557,28 @@ CATALOG_URL = "https://cdn.jsdelivr.net/gh/MaximusFed2/mafep1-os@main/catalog.tx
 def load_catalog():
     ssid, password = load_wifi_config()
     if not ssid: ssid, password = "MaximusFed2WiFi", "57256062"
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    wlan.connect(ssid, password)
-    clear(); draw_status_bar("Loading Catalog")
-    text("Connecting...", 10, 80, YELLOW, font16)
+    wlan = network.WLAN(network.STA_IF); wlan.active(True); wlan.connect(ssid, password)
+    clear(); draw_status_bar("Loading Catalog"); text("Connecting...", 10, 80, YELLOW, font16)
     for i in range(20):
         if wlan.isconnected(): break
         time.sleep_ms(500)
     if not wlan.isconnected():
-        sound_error(); text("WiFi failed!", 10, 120, RED, font16)
-        time.sleep_ms(2000); wlan.active(False); return None
+        sound_error(); text("WiFi failed!", 10, 120, RED, font16); time.sleep_ms(2000); wlan.active(False); return None
     try:
         import urequests
         text("Downloading...", 10, 150, CYAN, font16)
         response = urequests.get(CATALOG_URL)
         if response.status_code == 200:
-            catalog_text = response.text
-            response.close(); wlan.disconnect(); wlan.active(False)
+            catalog_text = response.text; response.close(); wlan.disconnect(); wlan.active(False)
             games = []
             for line in catalog_text.split('\n'):
                 line = line.strip()
                 if '|' in line:
                     parts = line.split('|')
-                    if len(parts) >= 2:
-                        name = parts[0].strip()
-                        url = parts[1].strip()
-                        version = parts[2].strip() if len(parts) > 2 else "1.0"
-                        games.append((name, url, version))
+                    if len(parts) >= 2: games.append((parts[0].strip(), parts[1].strip(), parts[2].strip() if len(parts) > 2 else "1.0"))
             return games
         else:
-            response.close(); wlan.disconnect(); wlan.active(False)
-            sound_error(); return None
+            response.close(); wlan.disconnect(); wlan.active(False); sound_error(); return None
     except Exception as e:
         try: wlan.disconnect(); wlan.active(False)
         except: pass
@@ -652,138 +586,53 @@ def load_catalog():
 
 def download_game(name, url):
     ssid, password = load_wifi_config()
-    if not ssid: 
-        ssid, password = "MaximusFed2WiFi", "57256062"
-    
-    clear()
-    draw_status_bar("Downloading")
-    text("Connecting WiFi...", 10, 60, YELLOW, font8)
-    text("SSID: " + ssid[:15], 10, 80, WHITE, font8)
-    
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    wlan.connect(ssid, password)
-    
-    # Ждём подключения дольше
-    for i in range(40):  # 20 секунд вместо 10
-        if wlan.isconnected():
-            break
-        dots = "." * ((i % 5) + 1)
-        text("Connecting" + dots, 10, 110, GREEN if i % 2 == 0 else YELLOW, font8)
-        time.sleep_ms(500)
-    
+    if not ssid: ssid, password = "MaximusFed2WiFi", "57256062"
+    wlan = network.WLAN(network.STA_IF); wlan.active(True); wlan.connect(ssid, password)
+    clear(); draw_status_bar("Downloading")
     if not wlan.isconnected():
-        sound_error()
-        clear()
-        draw_status_bar("WiFi Error")
-        text("Failed to connect!", 10, 80, RED, font16)
-        text("Check WiFi settings", 10, 110, YELLOW, font8)
-        text("in Settings menu", 10, 125, YELLOW, font8)
-        text("Joy2BTN: Back", 10, 180, WHITE, font8)
-        wlan.active(False)
-        while True:
-            if joy2.btn_pressed(): 
-                sound_back()
-                return
-            time.sleep_ms(16)
-        return False
-    
-    # WiFi подключён - показываем IP
-    ip = wlan.ifconfig()[0]
-    sound_select()
-    text("Connected!", 10, 140, GREEN, font16)
-    text("IP: " + ip, 10, 160, WHITE, font8)
-    time.sleep_ms(1000)
-    
+        sound_error(); text("WiFi failed!", 10, 100, RED, font16); time.sleep_ms(2000); wlan.active(False); return False
     try:
         import urequests
-        text("Downloading...", 10, 190, CYAN, font8)
-        
+        text(name[:18], 10, 80, WHITE, font16)
         response = urequests.get(url)
-        
         if response.status_code == 200:
             filepath = "/sd/downloads/" + name + ".py"
-            try: 
-                os.mkdir("/sd/downloads")
-            except: 
-                pass
-            
-            with open(filepath, 'wb') as f: 
-                f.write(response.content)
-            
-            response.close()
-            wlan.disconnect()
-            wlan.active(False)
-            
-            sound_select()
-            clear()
-            draw_status_bar("Success!")
-            text("Downloaded!", 10, 100, GREEN, font16)
-            text(name[:18], 10, 130, WHITE, font8)
-            size = os.stat(filepath)[6]
-            text(str(size) + " bytes", 10, 150, CYAN, font8)
-            text("In /sd/downloads/", 10, 170, YELLOW, font8)
-            time.sleep_ms(3000)
-            return True
+            try: os.mkdir("/sd/downloads")
+            except: pass
+            with open(filepath, 'wb') as f: f.write(response.content)
+            response.close(); wlan.disconnect(); wlan.active(False)
+            sound_select(); clear(); draw_status_bar("Success!"); text("Downloaded!", 10, 100, GREEN, font16); time.sleep_ms(2000); return True
         else:
-            response.close()
-            wlan.disconnect()
-            wlan.active(False)
-            sound_error()
-            clear()
-            draw_status_bar("Error")
-            text("HTTP " + str(response.status_code), 10, 100, RED, font16)
-            text("File not found", 10, 130, YELLOW, font8)
-            time.sleep_ms(2000)
-            return False
-            
+            response.close(); wlan.disconnect(); wlan.active(False)
+            sound_error(); clear(); draw_status_bar("Error"); text("HTTP " + str(response.status_code), 10, 100, RED, font16); time.sleep_ms(2000); return False
     except Exception as e:
-        try:
-            wlan.disconnect()
-            wlan.active(False)
-        except: 
-            pass
-        sound_error()
-        clear()
-        draw_status_bar("Error")
-        text("Download failed", 10, 80, RED, font16)
-        draw_wrapped_text(str(e), 10, 110, RED, font8)
-        time.sleep_ms(3000)
-        return False
+        try: wlan.disconnect(); wlan.active(False)
+        except: pass
+        sound_error(); clear(); draw_status_bar("Error"); draw_wrapped_text(str(e), 10, 100, RED, font8); time.sleep_ms(2000); return False
 
 def github_catalog():
-    clear(); draw_status_bar("GitHub Catalog")
-    text("Loading...", 10, 100, YELLOW, font16)
+    clear(); draw_status_bar("GitHub Catalog"); text("Loading...", 10, 100, YELLOW, font16)
     games = load_catalog()
     if games is None or not games:
-        sound_error(); text("Failed/Empty", 10, 100, RED, font16)
-        text("Joy2BTN: Back", 10, 160, WHITE, font8)
+        sound_error(); text("Failed/Empty", 10, 100, RED, font16); text("Joy2BTN: Back", 10, 160, WHITE, font8)
         while True:
             if joy2.btn_pressed(): sound_back(); return
             time.sleep_ms(16)
         return
     
-    selected = 0
-    scroll_offset = 0
-    visible = 5
-    needs_redraw = True
+    selected, scroll_offset, visible, needs_redraw = 0, 0, 5, True
     
     while True:
         if needs_redraw:
             clear(); draw_status_bar("GitHub Catalog")
-            start_idx = scroll_offset
-            end_idx = min(len(games), start_idx + visible)
+            start_idx, end_idx = scroll_offset, min(len(games), scroll_offset + visible)
             for i in range(start_idx, end_idx):
                 y = 40 + (i - start_idx) * 35
                 name, url, version = games[i]
                 name_color = CYAN if i == selected else WHITE
-                if i == selected:
-                    display.fill_rect(5, y-5, 230, 30, MEDIUM_BLUE)
-                    display.rect(5, y-5, 230, 30, CYAN)
-                text(name[:16], 10, y+5, name_color, font16)
-                text("v" + version, 180, y+10, GREEN, font8)
-            draw_hints()
-            needs_redraw = False
+                if i == selected: display.fill_rect(5, y-5, 230, 30, MEDIUM_BLUE); display.rect(5, y-5, 230, 30, CYAN)
+                text(name[:16], 10, y+5, name_color, font16); text("v" + version, 180, y+10, GREEN, font8)
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0:
@@ -797,11 +646,8 @@ def github_catalog():
         elif joy1.btn_pressed():
             name, url, version = games[selected]
             sound_select()
-            clear(); draw_status_bar("Download?")
-            text(name[:18], 10, 80, CYAN, font16)
-            text("v" + version, 10, 110, GREEN, font8)
-            text("Joy1BTN: Yes", 10, 160, GREEN, font8)
-            text("Joy2BTN: No", 10, 180, RED, font8)
+            clear(); draw_status_bar("Download?"); text(name[:18], 10, 80, CYAN, font16); text("v" + version, 10, 110, GREEN, font8)
+            text("Joy1BTN: Yes", 10, 160, GREEN, font8); text("Joy2BTN: No", 10, 180, RED, font8)
             confirm = False
             while True:
                 if joy1.btn_pressed(): confirm = True; sound_select(); break
@@ -832,39 +678,27 @@ def save_wifi_config(ssid, password):
     except: return False
 
 def wifi_scanner():
-    clear(); draw_status_bar("WiFi Scanner")
-    text("Scanning...", 10, 100, YELLOW, font16)
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    time.sleep_ms(1000)
+    clear(); draw_status_bar("WiFi Scanner"); text("Scanning...", 10, 100, YELLOW, font16)
+    wlan = network.WLAN(network.STA_IF); wlan.active(True); time.sleep_ms(1000)
     networks = wlan.scan()
     if not networks:
-        sound_error(); text("No networks!", 10, 100, RED, font16)
-        time.sleep_ms(2000); wlan.active(False); return None, None
+        sound_error(); text("No networks!", 10, 100, RED, font16); time.sleep_ms(2000); wlan.active(False); return None, None
     networks.sort(key=lambda x: x[3], reverse=True)
     
-    selected = 0
-    scroll_offset = 0
-    visible = 5
-    needs_redraw = True
+    selected, scroll_offset, visible, needs_redraw = 0, 0, 5, True
     
     while True:
         if needs_redraw:
             clear(); draw_status_bar("Select WiFi")
-            start_idx = scroll_offset
-            end_idx = min(len(networks), start_idx + visible)
+            start_idx, end_idx = scroll_offset, min(len(networks), scroll_offset + visible)
             for i in range(start_idx, end_idx):
                 y = 40 + (i - start_idx) * 35
                 ssid = networks[i][0].decode('utf-8', 'ignore')
-                rssi = networks[i][3]
-                auth = networks[i][4]
+                rssi, auth = networks[i][3], networks[i][4]
                 name_color = CYAN if i == selected else WHITE
-                if i == selected:
-                    display.rect(5, y-3, 230, 26, CYAN)
-                text(ssid[:14], 10, y+2, name_color, font16)
-                text(("*" if auth > 0 else " ") + str(rssi), 180, y+5, GREEN, font8)
-            draw_hints()
-            needs_redraw = False
+                if i == selected: display.rect(5, y-3, 230, 26, CYAN)
+                text(ssid[:14], 10, y+2, name_color, font16); text(("*" if auth > 0 else " ") + str(rssi), 180, y+5, GREEN, font8)
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0:
@@ -888,21 +722,16 @@ def wifi_scanner():
 
 def wifi_settings():
     menu_items = [("Scan & Connect", GREEN), ("Saved Networks", CYAN), ("WebREPL Info", YELLOW), ("FTP Info", BLUE), ("Disconnect", RED)]
-    selected = 0
-    needs_redraw = True
+    selected, needs_redraw = 0, True
     
     while True:
         if needs_redraw:
             clear(); draw_status_bar("WiFi Settings")
             for i, (name, color) in enumerate(menu_items):
                 y = 50 + i * 30
-                if i == selected:
-                    display.fill_rect(5, y-5, 230, 28, MEDIUM_BLUE)
-                    display.rect(5, y-5, 230, 28, color)
-                    text(name, 10, y+5, color, font16)
+                if i == selected: display.fill_rect(5, y-5, 230, 28, MEDIUM_BLUE); display.rect(5, y-5, 230, 28, color); text(name, 10, y+5, color, font16)
                 else: text(name, 10, y+5, WHITE, font16)
-            draw_hints()
-            needs_redraw = False
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0: selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
@@ -912,69 +741,52 @@ def wifi_settings():
             if selected == 0:
                 ssid, password = wifi_scanner()
                 if ssid:
-                    clear(); draw_status_bar("Connecting...")
-                    text("To: " + ssid[:16], 10, 80, WHITE, font16)
-                    wlan = network.WLAN(network.STA_IF)
-                    wlan.active(True)
-                    wlan.connect(ssid, password)
+                    clear(); draw_status_bar("Connecting..."); text("To: " + ssid[:16], 10, 80, WHITE, font16)
+                    wlan = network.WLAN(network.STA_IF); wlan.active(True); wlan.connect(ssid, password)
                     for i in range(20):
                         if wlan.isconnected(): break
-                        text(".", 10 + i*10, 120, GREEN, font8)
-                        time.sleep_ms(500)
+                        text(".", 10 + i*10, 120, GREEN, font8); time.sleep_ms(500)
                     if wlan.isconnected():
-                        sound_select(); text("Connected!", 10, 150, GREEN, font16)
-                        text("IP: " + wlan.ifconfig()[0], 10, 180, WHITE, font8)
-                        save_wifi_config(ssid, password)
-                        time.sleep_ms(2500)
+                        sound_select(); text("Connected!", 10, 150, GREEN, font16); text("IP: " + wlan.ifconfig()[0], 10, 180, WHITE, font8)
+                        save_wifi_config(ssid, password); time.sleep_ms(2500)
                     else:
-                        sound_error(); text("Failed!", 10, 150, RED, font16)
-                        time.sleep_ms(2000)
-                    wlan.active(False)
-                    needs_redraw = True
+                        sound_error(); text("Failed!", 10, 150, RED, font16); time.sleep_ms(2000)
+                    wlan.active(False); needs_redraw = True
             elif selected == 1:
                 clear(); draw_status_bar("Saved Networks")
                 ssid, password = load_wifi_config()
-                if ssid:
-                    text("Saved:", 10, 80, GREEN, font16)
-                    text(ssid[:18], 10, 110, WHITE, font16)
-                    text("Pass: " + ("*" * len(password)), 10, 140, YELLOW, font8)
-                else:
-                    text("No saved", 10, 100, YELLOW, font16)
+                if ssid: text("Saved:", 10, 80, GREEN, font16); text(ssid[:18], 10, 110, WHITE, font16); text("Pass: " + ("*" * len(password)), 10, 140, YELLOW, font8)
+                else: text("No saved", 10, 100, YELLOW, font16)
                 text("Joy2BTN: Back", 10, 180, WHITE, font8)
                 while True:
                     if joy2.btn_pressed(): sound_back(); break
                     time.sleep_ms(16)
             elif selected == 2:
                 clear(); draw_status_bar("WebREPL")
-                text("1. webrepl_setup", 10, 60, YELLOW, font8)
-                text("2. micropython.org", 10, 80, CYAN, font8)
+                text("1. webrepl_setup", 10, 60, YELLOW, font8); text("2. micropython.org", 10, 80, CYAN, font8)
                 text("/webrepl", 10, 95, CYAN, font8)
                 ip = "192.168.4.1"
                 try:
                     wlan = network.WLAN(network.STA_IF)
                     if wlan.isconnected(): ip = wlan.ifconfig()[0]
                 except: pass
-                text("ws://" + ip + ":8266/", 10, 125, GREEN, font8)
-                text("Joy2BTN: Back", 10, 200, WHITE, font8)
+                text("ws://" + ip + ":8266/", 10, 125, GREEN, font8); text("Joy2BTN: Back", 10, 200, WHITE, font8)
                 while True:
                     if joy2.btn_pressed(): sound_back(); break
                     time.sleep_ms(16)
             elif selected == 3:
                 clear(); draw_status_bar("FTP Info")
-                text("FTP causes crash", 10, 60, RED, font8)
-                text("on some builds.", 10, 75, RED, font8)
-                text("Use standalone:", 10, 100, YELLOW, font8)
-                text("/sd/apps/ftp_server.py", 10, 115, WHITE, font8)
+                text("Use standalone:", 10, 80, YELLOW, font8)
+                text("/sd/apps/ftp_server.py", 10, 100, WHITE, font8)
+                text("It creates its own", 10, 130, YELLOW, font8)
+                text("WiFi AP for PC/Phone", 10, 145, YELLOW, font8)
                 text("Joy2BTN: Back", 10, 200, WHITE, font8)
                 while True:
                     if joy2.btn_pressed(): sound_back(); break
                     time.sleep_ms(16)
             elif selected == 4:
-                wlan = network.WLAN(network.STA_IF)
-                wlan.disconnect(); wlan.active(False)
-                sound_select(); clear(); draw_status_bar("Disconnected")
-                text("WiFi disabled", 10, 100, YELLOW, font16)
-                time.sleep_ms(1500)
+                wlan = network.WLAN(network.STA_IF); wlan.disconnect(); wlan.active(False)
+                sound_select(); clear(); draw_status_bar("Disconnected"); text("WiFi disabled", 10, 100, YELLOW, font16); time.sleep_ms(1500)
                 needs_redraw = True
         elif joy2.btn_pressed(): sound_back(); return
         time.sleep_ms(10)
@@ -991,40 +803,31 @@ def apps_menu():
     for d in downloads: items.append(('down', d.replace('.py', ''), '/sd/downloads/' + d))
     
     if not items:
-        clear(); draw_status_bar("Apps")
-        text("No apps found!", 10, 80, YELLOW, font16)
-        text("/sd/games/", 10, 110, GREEN, font8)
-        text("/sd/apps/", 10, 130, CYAN, font8)
+        clear(); draw_status_bar("Apps"); text("No apps found!", 10, 80, YELLOW, font16)
+        text("/sd/games/", 10, 110, GREEN, font8); text("/sd/apps/", 10, 130, CYAN, font8)
         text("Joy2BTN: Back", 10, 190, WHITE, font8)
         while True:
             if joy2.btn_pressed(): sound_back(); return
             time.sleep_ms(16)
         return
     
-    selected = 0
-    scroll_offset = 0
-    visible = 5
-    needs_redraw = True
+    selected, scroll_offset, visible, needs_redraw = 0, 0, 5, True
     
     while True:
         if needs_redraw:
             clear(); draw_status_bar("Apps Menu")
-            start_idx = scroll_offset
-            end_idx = min(len(items), start_idx + visible)
+            start_idx, end_idx = scroll_offset, min(len(items), scroll_offset + visible)
             for i in range(start_idx, end_idx):
                 y = 40 + (i - start_idx) * 35
                 item_type, name, path = items[i]
                 if item_type == 'game': icon, icon_color = "G", GREEN
                 elif item_type == 'app': icon, icon_color = "A", CYAN
                 else: icon, icon_color = "D", BLUE
-                display.fill_rect(5, y, 20, 20, icon_color)
-                text(icon, 9, y+2, WHITE, font8)
+                display.fill_rect(5, y, 20, 20, icon_color); text(icon, 9, y+2, WHITE, font8)
                 name_color = CYAN if i == selected else WHITE
-                if i == selected:
-                    display.rect(5, y-3, 230, 26, CYAN)
+                if i == selected: display.rect(5, y-3, 230, 26, CYAN)
                 text(name[:16], 30, y+2, name_color, font16)
-            draw_hints()
-            needs_redraw = False
+            draw_hints(); needs_redraw = False
 
         direction = joy1.read()
         if direction == 'up' and selected > 0:
@@ -1037,8 +840,7 @@ def apps_menu():
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif joy1.btn_pressed():
             _, _, path = items[selected]
-            sound_select(); launch_file(path); mount_sd()
-            needs_redraw = True
+            sound_select(); launch_file(path); mount_sd(); needs_redraw = True
         elif joy2.btn_pressed(): sound_back(); return
         time.sleep_ms(10)
 
@@ -1065,40 +867,32 @@ def get_version_file(filepath):
     except: return (0, 0, 0, 0)
 
 def wifi_update():
-    clear(); draw_status_bar("WiFi Update")
-    text("Checking...", 10, 80, WHITE, font16)
+    clear(); draw_status_bar("WiFi Update"); text("Checking...", 10, 80, WHITE, font16)
     WIFI_SSID, WIFI_PASS = load_wifi_config()
     if not WIFI_SSID: WIFI_SSID, WIFI_PASS = "MaximusFed2WiFi", "57256062"
     
     GITHUB_URL = "https://cdn.jsdelivr.net/gh/MaximusFed2/mafep1-os@main/system/mafep1_os.py"
     
     try:
-        wlan = network.WLAN(network.STA_IF)
-        wlan.active(True)
-        wlan.connect(WIFI_SSID, WIFI_PASS)
+        wlan = network.WLAN(network.STA_IF); wlan.active(True); wlan.connect(WIFI_SSID, WIFI_PASS)
         text("Connecting...", 10, 110, YELLOW, font16)
         for i in range(30):
             if wlan.isconnected(): break
-            text("." * (i+1), 10, 130, GREEN, font8)
-            time.sleep_ms(500)
+            text("." * (i+1), 10, 130, GREEN, font8); time.sleep_ms(500)
         if not wlan.isconnected():
-            sound_error(); text("No internet!", 10, 160, RED, font16)
-            text("Joy2BTN: Back", 10, 200, WHITE, font8)
+            sound_error(); text("No internet!", 10, 160, RED, font16); text("Joy2BTN: Back", 10, 200, WHITE, font8)
             wlan.active(False)
             while True:
                 if joy2.btn_pressed(): sound_back(); return
                 time.sleep_ms(16)
             return
         
-        sound_select(); text("Connected!", 10, 160, GREEN, font16)
-        time.sleep_ms(1000)
-        
+        sound_select(); text("Connected!", 10, 160, GREEN, font16); time.sleep_ms(1000)
         text("Downloading...", 10, 50, CYAN, font16)
         import urequests
         response = urequests.get(GITHUB_URL)
         if response.status_code == 200:
-            github_code = response.text
-            response.close()
+            github_code = response.text; response.close()
             github_ver = get_version(github_code)
             local_ver = get_version_file('/sd/system/mafep1_os.py')
             
@@ -1107,36 +901,27 @@ def wifi_update():
                 return '.'.join(str(x) for x in v)
             
             text("Local: v" + format_ver(local_ver), 10, 80, WHITE, font8)
-            text("GitHub: v" + format_ver(github_ver), 10, 100, CYAN, font8)
-            time.sleep_ms(1500)
+            text("GitHub: v" + format_ver(github_ver), 10, 100, CYAN, font8); time.sleep_ms(1500)
             
             if github_ver > local_ver:
-                text("New version!", 10, 130, GREEN, font16)
-                text("Updating...", 10, 150, YELLOW, font16)
-                time.sleep_ms(1000)
+                text("New version!", 10, 130, GREEN, font16); text("Updating...", 10, 150, YELLOW, font16); time.sleep_ms(1000)
                 with open('/sd/system/mafep1_os_new.py', 'w') as f: f.write(github_code)
                 try: os.remove('/sd/system/mafep1_os.py')
                 except: pass
                 os.rename('/sd/system/mafep1_os_new.py', '/sd/system/mafep1_os.py')
-                text("Success!", 10, 180, GREEN, font16)
-                text("Rebooting...", 10, 200, YELLOW, font16)
-                beep(1500, 200)
-                time.sleep_ms(1000)
-                wlan.disconnect(); wlan.active(False)
-                machine.reset()
+                text("Success!", 10, 180, GREEN, font16); text("Rebooting...", 10, 200, YELLOW, font16)
+                beep(1500, 200); time.sleep_ms(1000)
+                wlan.disconnect(); wlan.active(False); machine.reset()
             else:
-                text("Already latest", 10, 130, YELLOW, font16)
-                text("Joy2BTN: Back", 10, 160, WHITE, font8)
+                text("Already latest", 10, 130, YELLOW, font16); text("Joy2BTN: Back", 10, 160, WHITE, font8)
                 wlan.disconnect(); wlan.active(False)
                 while True:
                     if joy2.btn_pressed(): sound_back(); return
                     time.sleep_ms(16)
         else:
-            sound_error(); text("Download failed", 10, 130, RED, font16)
-            response.close(); time.sleep(2)
+            sound_error(); text("Download failed", 10, 130, RED, font16); response.close(); time.sleep(2)
     except Exception as e:
-        sound_error(); draw_wrapped_text(str(e), 10, 130, RED, font8)
-        text("Joy2BTN: Back", 10, 200, WHITE, font8)
+        sound_error(); draw_wrapped_text(str(e), 10, 130, RED, font8); text("Joy2BTN: Back", 10, 200, WHITE, font8)
         while True:
             if joy2.btn_pressed(): sound_back(); return
             time.sleep_ms(16)
@@ -1144,40 +929,49 @@ def wifi_update():
 # === ABOUT ===
 def about_screen():
     clear(); draw_status_bar("About")
-    text("MaFe P1 OS", 10, 50, CYAN, font16)
-    text("Version 1.3", 10, 80, WHITE, font16)
+    text("MaFe P1 OS", 10, 50, CYAN, font16); text("Version 1.4", 10, 80, WHITE, font16)
     text("Fixes:", 10, 110, YELLOW, font16)
     text("- No screen flicker", 10, 130, WHITE, font8)
     text("- Error text wrap", 10, 145, WHITE, font8)
     text("- Left aligned text", 10, 160, WHITE, font8)
-    text("- FTP crash fixed", 10, 175, WHITE, font8)
+    text("- Graphical Menu", 10, 175, WHITE, font8)
     text("Joy2BTN to exit", 10, 210, YELLOW, font8)
     while True:
         if joy2.btn_pressed(): sound_back(); return
         time.sleep_ms(16)
+
+# === GRAPHICAL MENU LAUNCHER ===
+def launch_graphical_menu():
+    try:
+        exec(open('/sd/system/mafep1_os_menu.py').read())
+    except Exception as e:
+        clear(); draw_status_bar("Error")
+        text("Menu error!", 10, 80, RED, font16)
+        draw_wrapped_text(str(e), 10, 110, YELLOW, font8)
+        text("Joy2BTN: Back", 10, 200, WHITE, font8)
+        while True:
+            if joy2.btn_pressed(): sound_back(); return
+            time.sleep_ms(16)
 
 # === MAIN MENU ===
 def main_menu():
     mount_sd()
     menu_items = [
         ("Games & Apps", apps_menu, GREEN),
-        ("GitHub Catalog", github_catalog, CYAN),
-        ("Firebase Sync", firebase_menu, BLUE),
-        ("WiFi Update", wifi_update, YELLOW),
-        ("Settings", wifi_settings, RED),
-        ("About", about_screen, WHITE),
+        ("Graphical Menu", launch_graphical_menu, CYAN),
+        ("GitHub Catalog", github_catalog, BLUE),
+        ("Firebase Sync", firebase_menu, YELLOW),
+        ("WiFi Update", wifi_update, RED),
+        ("Settings", wifi_settings, WHITE),
     ]
-    selected = 0
-    needs_redraw = True
+    selected, needs_redraw = 0, True
     
-    beep(800, 50, 192)
-    time.sleep_ms(50)
-    beep(1200, 80, 256)
+    beep(800, 50, 192); time.sleep_ms(50); beep(1200, 80, 256)
     
     while True:
         if needs_redraw:
             clear()
-            draw_status_bar("MaFe P1 OS v1.3")
+            draw_status_bar("MaFe P1 OS v1.4")
             text("MaFe P1", 10, 40, CYAN, font16)
             
             start_idx = max(0, selected - 2)
@@ -1197,15 +991,9 @@ def main_menu():
         
         direction = joy1.read()
         if direction == 'up' and selected > 0:
-            selected -= 1
-            sound_nav()
-            needs_redraw = True
-            time.sleep_ms(150)
+            selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'down' and selected < len(menu_items) - 1:
-            selected += 1
-            sound_nav()
-            needs_redraw = True
-            time.sleep_ms(150)
+            selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif joy1.btn_pressed():
             _, func, _ = menu_items[selected]
             if func:
@@ -1215,5 +1003,6 @@ def main_menu():
                 needs_redraw = True
         time.sleep_ms(10)
 
-print("MaFe P1 OS v1.3 starting...")
-main_menu()
+if __name__ == '__main__':
+    print("MaFe P1 OS v1.4 starting...")
+    main_menu()
