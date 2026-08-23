@@ -1,4 +1,4 @@
-# MaFe P1 OS v1.4
+# MaFe P1 OS v1.5
 # Features: No flicker, Wrapped errors, Left-aligned, Firebase Multi-Game, GitHub Catalog, Graphical Menu Launcher
 
 import machine, time, os, network, gc, ubinascii
