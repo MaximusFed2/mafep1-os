@@ -652,38 +652,104 @@ def load_catalog():
 
 def download_game(name, url):
     ssid, password = load_wifi_config()
-    if not ssid: ssid, password = "MaximusFed2WiFi", "57256062"
+    if not ssid: 
+        ssid, password = "MaximusFed2WiFi", "57256062"
+    
+    clear()
+    draw_status_bar("Downloading")
+    text("Connecting WiFi...", 10, 60, YELLOW, font8)
+    text("SSID: " + ssid[:15], 10, 80, WHITE, font8)
+    
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.connect(ssid, password)
-    clear(); draw_status_bar("Downloading")
+    
+    # Ждём подключения дольше
+    for i in range(40):  # 20 секунд вместо 10
+        if wlan.isconnected():
+            break
+        dots = "." * ((i % 5) + 1)
+        text("Connecting" + dots, 10, 110, GREEN if i % 2 == 0 else YELLOW, font8)
+        time.sleep_ms(500)
+    
     if not wlan.isconnected():
-        sound_error(); text("WiFi failed!", 10, 100, RED, font16)
-        time.sleep_ms(2000); wlan.active(False); return False
+        sound_error()
+        clear()
+        draw_status_bar("WiFi Error")
+        text("Failed to connect!", 10, 80, RED, font16)
+        text("Check WiFi settings", 10, 110, YELLOW, font8)
+        text("in Settings menu", 10, 125, YELLOW, font8)
+        text("Joy2BTN: Back", 10, 180, WHITE, font8)
+        wlan.active(False)
+        while True:
+            if joy2.btn_pressed(): 
+                sound_back()
+                return
+            time.sleep_ms(16)
+        return False
+    
+    # WiFi подключён - показываем IP
+    ip = wlan.ifconfig()[0]
+    sound_select()
+    text("Connected!", 10, 140, GREEN, font16)
+    text("IP: " + ip, 10, 160, WHITE, font8)
+    time.sleep_ms(1000)
+    
     try:
         import urequests
-        text(name[:18], 10, 80, WHITE, font16)
+        text("Downloading...", 10, 190, CYAN, font8)
+        
         response = urequests.get(url)
+        
         if response.status_code == 200:
             filepath = "/sd/downloads/" + name + ".py"
-            try: os.mkdir("/sd/downloads")
-            except: pass
-            with open(filepath, 'wb') as f: f.write(response.content)
-            response.close(); wlan.disconnect(); wlan.active(False)
-            sound_select(); clear(); draw_status_bar("Success!")
+            try: 
+                os.mkdir("/sd/downloads")
+            except: 
+                pass
+            
+            with open(filepath, 'wb') as f: 
+                f.write(response.content)
+            
+            response.close()
+            wlan.disconnect()
+            wlan.active(False)
+            
+            sound_select()
+            clear()
+            draw_status_bar("Success!")
             text("Downloaded!", 10, 100, GREEN, font16)
-            time.sleep_ms(2000); return True
+            text(name[:18], 10, 130, WHITE, font8)
+            size = os.stat(filepath)[6]
+            text(str(size) + " bytes", 10, 150, CYAN, font8)
+            text("In /sd/downloads/", 10, 170, YELLOW, font8)
+            time.sleep_ms(3000)
+            return True
         else:
-            response.close(); wlan.disconnect(); wlan.active(False)
-            sound_error(); clear(); draw_status_bar("Error")
+            response.close()
+            wlan.disconnect()
+            wlan.active(False)
+            sound_error()
+            clear()
+            draw_status_bar("Error")
             text("HTTP " + str(response.status_code), 10, 100, RED, font16)
-            time.sleep_ms(2000); return False
+            text("File not found", 10, 130, YELLOW, font8)
+            time.sleep_ms(2000)
+            return False
+            
     except Exception as e:
-        try: wlan.disconnect(); wlan.active(False)
-        except: pass
-        sound_error(); clear(); draw_status_bar("Error")
-        draw_wrapped_text(str(e), 10, 100, RED, font8)
-        time.sleep_ms(2000); return False
+        try:
+            wlan.disconnect()
+            wlan.active(False)
+        except: 
+            pass
+        sound_error()
+        clear()
+        draw_status_bar("Error")
+        text("Download failed", 10, 80, RED, font16)
+        draw_wrapped_text(str(e), 10, 110, RED, font8)
+        time.sleep_ms(3000)
+        return False
 
 def github_catalog():
     clear(); draw_status_bar("GitHub Catalog")
