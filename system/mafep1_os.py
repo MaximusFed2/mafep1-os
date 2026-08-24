@@ -1,5 +1,5 @@
-# MaFe P1 OS v2.0
-# Полная версия с поддержкой 15 кнопок и модульной архитектурой
+# MaFe P1 OS v2.1
+# Исправленная версия с рабочими кнопками
 
 import machine, time, os, gc, ubinascii
 import st7789, vga1_16x16 as font16, vga1_8x8 as font8
@@ -61,6 +61,7 @@ class Joystick:
         return 'center'
     def btn_pressed(self, debounce_ms=200):
         now = time.ticks_ms()
+        # Джойстики: LOW = нажата
         if self.btn.value() == 0 and time.ticks_diff(now, self.last_time) > debounce_ms:
             self.last_time = now
             return True
@@ -69,7 +70,7 @@ class Joystick:
 joy1 = Joystick(joy1_x, joy1_y, joy1_btn)
 joy2 = Joystick(joy2_x, joy2_y, joy2_btn)
 
-# === КНОПКИ (11 штук) ===
+# === КНОПКИ (11 штук) - ИСПРАВЛЕНО: HIGH = нажата ===
 try:
     from mafep1_control import Control
     control = Control()
@@ -959,10 +960,10 @@ def wifi_update():
 # === ABOUT ===
 def about_screen():
     clear(); draw_status_bar("About")
-    text("MaFe P1 OS", 10, 50, CYAN, font16); text("Version 2.0", 10, 80, WHITE, font16)
+    text("MaFe P1 OS", 10, 50, CYAN, font16); text("Version 2.1", 10, 80, WHITE, font16)
     text("Features:", 10, 110, YELLOW, font16)
-    text("- 15 button support", 10, 130, WHITE, font8)
-    text("- Modular libraries", 10, 145, WHITE, font8)
+    text("- 11 button support", 10, 130, WHITE, font8)
+    text("- Fixed button logic", 10, 145, WHITE, font8)
     text("- Game menu system", 10, 160, WHITE, font8)
     text("B to exit", 10, 210, YELLOW, font8)
     while True:
@@ -1002,7 +1003,7 @@ def main_menu():
     while True:
         if needs_redraw:
             clear()
-            draw_status_bar("MaFe P1 OS v2.0")
+            draw_status_bar("MaFe P1 OS v2.1")
             text("MaFe P1", 10, 40, CYAN, font16)
             
             start_idx = max(0, selected - 2)
@@ -1027,7 +1028,7 @@ def main_menu():
         elif direction == 'down' and selected < len(menu_items) - 1:
             selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         
-        # Навигация кнопками D-Pad
+        # Навигация кнопками D-Pad (ИСПРАВЛЕНО: HIGH = нажата)
         if HAS_BUTTONS:
             if control.btn_pressed('UP') and selected > 0:
                 selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
@@ -1062,5 +1063,5 @@ def main_menu():
         time.sleep_ms(10)
 
 if __name__ == '__main__':
-    print("MaFe P1 OS v2.0 starting...")
+    print("MaFe P1 OS v2.1 starting...")
     main_menu()
