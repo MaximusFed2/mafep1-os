@@ -1,4 +1,4 @@
-# MaFe P1 OS v2.2
+# MaFe P1 OS v0.9
 # Исправленная версия с рабочими кнопками
 
 import machine, time, os, gc, ubinascii, network
