@@ -1,4 +1,4 @@
-# MaFe P1 OS v2.1
+# MaFe P1 OS v2.2
 # Исправленная версия с рабочими кнопками
 
 import machine, time, os, gc, ubinascii
@@ -988,6 +988,16 @@ def launch_graphical_menu():
 # === MAIN MENU ===
 def main_menu():
     mount_sd()
+    
+    # Импортируем кнопки напрямую
+    try:
+        import mafep1_control as ctrl
+        HAS_BUTTONS = True
+        print("✅ Кнопки загружены")
+    except Exception as e:
+        HAS_BUTTONS = False
+        print("❌ Ошибка загрузки кнопок:", e)
+    
     menu_items = [
         ("Games & Apps", apps_menu, GREEN),
         ("Graphical Menu", launch_graphical_menu, CYAN),
@@ -1021,22 +1031,22 @@ def main_menu():
             draw_hints()
             needs_redraw = False
         
-        # Навигация джойстиком
+        # === НАВИГАЦИЯ ДЖОЙСТИКОМ ===
         direction = joy1.read()
         if direction == 'up' and selected > 0:
             selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'down' and selected < len(menu_items) - 1:
             selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         
-        # Навигация кнопками D-Pad (ИСПРАВЛЕНО: HIGH = нажата)
+        # === НАВИГАЦИЯ КНОПКАМИ D-PAD ===
         if HAS_BUTTONS:
-            if control.btn_pressed('UP') and selected > 0:
+            if ctrl.btn_up() and selected > 0:
                 selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
-            elif control.btn_pressed('DOWN') and selected < len(menu_items) - 1:
+            elif ctrl.btn_down() and selected < len(menu_items) - 1:
                 selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         
-        # Выбор (Joy1BTN или кнопка A)
-        if joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
+        # === ВЫБОР (Joy1BTN или кнопка A) ===
+        if joy1.btn_pressed() or (HAS_BUTTONS and ctrl.btn_a()):
             _, func, _ = menu_items[selected]
             if func:
                 sound_select()
@@ -1044,17 +1054,17 @@ def main_menu():
                 mount_sd()
                 needs_redraw = True
         
-        # Назад (кнопка B) - выход из OS
-        if HAS_BUTTONS and control.btn_b():
+        # === НАЗАД (кнопка B) ===
+        if HAS_BUTTONS and ctrl.btn_b():
             sound_back()
             clear()
             text("Exit OS?", 60, 100, YELLOW, font16)
             text("A:Yes  B:No", 60, 130, WHITE, font8)
             
             while True:
-                if control.btn_a():
+                if ctrl.btn_a():
                     machine.reset()
-                elif control.btn_b():
+                elif ctrl.btn_b():
                     break
                 time.sleep_ms(16)
             
