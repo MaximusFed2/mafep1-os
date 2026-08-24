@@ -1,7 +1,7 @@
 # MaFe P1 OS v2.2
 # Исправленная версия с рабочими кнопками
 
-import machine, time, os, gc, ubinascii
+import machine, time, os, gc, ubinascii, network
 import st7789, vga1_16x16 as font16, vga1_8x8 as font8
 
 # === ДИСПЛЕЙ ===
