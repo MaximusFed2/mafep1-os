@@ -1,7 +1,7 @@
-# MaFe P1 OS v1.5
-# Features: No flicker, Wrapped errors, Left-aligned, Firebase Multi-Game, GitHub Catalog, Graphical Menu Launcher
+# MaFe P1 OS v2.0
+# Полная версия с поддержкой 15 кнопок и модульной архитектурой
 
-import machine, time, os, network, gc, ubinascii
+import machine, time, os, gc, ubinascii
 import st7789, vga1_16x16 as font16, vga1_8x8 as font8
 
 # === ДИСПЛЕЙ ===
@@ -69,6 +69,14 @@ class Joystick:
 joy1 = Joystick(joy1_x, joy1_y, joy1_btn)
 joy2 = Joystick(joy2_x, joy2_y, joy2_btn)
 
+# === КНОПКИ (11 штук) ===
+try:
+    from mafep1_control import Control
+    control = Control()
+    HAS_BUTTONS = True
+except:
+    HAS_BUTTONS = False
+
 BLACK, DARK_BLUE, MEDIUM_BLUE = 0x0000, 0x0011, 0x0022
 CYAN, GREEN, WHITE, RED, YELLOW, BLUE = 0x07FF, 0x07E0, 0xFFFF, 0xF800, 0xFFE0, 0x001F
 
@@ -81,9 +89,9 @@ def draw_status_bar(title):
 
 def draw_hints():
     display.fill_rect(0, 215, 240, 25, MEDIUM_BLUE)
-    text("Joy1:Nav", 5, 220, WHITE, font8)
-    text("Joy1BTN:OK", 70, 220, GREEN, font8)
-    text("Joy2BTN:Back", 140, 220, RED, font8)
+    text("Joy1/UP-DOWN:Nav", 5, 220, WHITE, font8)
+    text("A:OK", 110, 220, GREEN, font8)
+    text("B:Back", 140, 220, RED, font8)
 
 def draw_wrapped_text(msg, x, y, color=WHITE, font=font8):
     max_chars = 26
@@ -132,12 +140,14 @@ def launch_file(path):
         text("Failed:", 10, 40, RED, font16)
         text(name[:15], 10, 60, WHITE, font16)
         draw_wrapped_text(str(e), 10, 90, YELLOW, font8)
-        text("Joy2BTN: Back", 10, 210, WHITE, font8)
+        text("B: Back", 10, 210, WHITE, font8)
         while True:
-            if joy2.btn_pressed(): sound_back(); return
+            if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                sound_back()
+                return
             time.sleep_ms(16)
 
-# === КЛАВИАТУРА v3 ===
+# === КЛАВИАТУРА ===
 def keyboard_input(title="Enter text", default=""):
     layouts_lower = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
     layouts_upper = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]
@@ -254,7 +264,7 @@ def keyboard_input(title="Enter text", default=""):
             elif mode == 4:
                 if special_idx < len(special_keys) - 1: special_idx += 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             if mode == 4:
                 key = special_keys[special_idx]
                 if key == "SPACE": text_result += " "; cursor_pos = len(text_result)
@@ -273,11 +283,11 @@ def keyboard_input(title="Enter text", default=""):
                 sound_select()
                 if shift_active and mode == 1: shift_active = False; mode = 0
             needs_redraw = True
-        elif joy2.btn_pressed():
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
             sound_back(); return default
         time.sleep_ms(10)
 
-# === FIREBASE CLOUD SYNC ===
+# === FIREBASE ===
 FIREBASE_URL = "https://mafep1-saves-default-rtdb.europe-west1.firebasedatabase.app"
 FIREBASE_USER_FILE = '/sd/system/firebase_user.txt'
 SAVES_DIR = '/sd/saves'
@@ -463,12 +473,13 @@ def firebase_select_slot(game_name, action):
             selected += 1
             if selected >= scroll_offset + visible: scroll_offset = selected - visible + 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             sound_select()
             if action == 'upload': firebase_upload_save(game_name, slots[selected])
             elif action == 'download': firebase_download_save(game_name, slots[selected])
             return
-        elif joy2.btn_pressed(): sound_back(); return
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(10)
 
 def firebase_select_game(action):
@@ -498,9 +509,10 @@ def firebase_select_game(action):
             selected += 1
             if selected >= scroll_offset + visible: scroll_offset = selected - visible + 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             sound_select(); firebase_select_slot(games[selected], action)
-        elif joy2.btn_pressed(): sound_back(); return
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(10)
 
 def firebase_account_info():
@@ -510,9 +522,10 @@ def firebase_account_info():
         text("User ID:", 10, 60, WHITE, font16); text(user_id[:20], 10, 90, CYAN, font16)
         text("Password:", 10, 125, WHITE, font16); text("*" * len(password), 10, 155, GREEN, font16)
     else: text("No account", 10, 100, RED, font16)
-    text("Joy2BTN: Back", 10, 210, WHITE, font8)
+    text("B: Back", 10, 210, WHITE, font8)
     while True:
-        if joy2.btn_pressed(): sound_back(); return
+        if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(16)
 
 def firebase_menu():
@@ -533,22 +546,25 @@ def firebase_menu():
         direction = joy1.read()
         if direction == 'up' and selected > 0: selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'down' and selected < len(menu_items) - 1: selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             sound_select()
             if selected == 0: firebase_select_game('upload')
             elif selected == 1: firebase_select_game('download')
             elif selected == 2: firebase_account_info()
             elif selected == 3:
                 clear(); draw_status_bar("Change?"); text("Erase current", 10, 80, YELLOW, font16); text("account?", 10, 100, YELLOW, font16)
-                text("Joy1BTN: Yes", 10, 140, GREEN, font8); text("Joy2BTN: No", 10, 160, RED, font8)
+                text("A: Yes", 10, 140, GREEN, font8); text("B: No", 10, 160, RED, font8)
                 confirm = False
                 while True:
-                    if joy1.btn_pressed(): confirm = True; sound_select(); break
-                    elif joy2.btn_pressed(): sound_back(); break
+                    if joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
+                        confirm = True; sound_select(); break
+                    elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                        sound_back(); break
                     time.sleep_ms(16)
                 if confirm: setup_firebase_account()
             needs_redraw = True
-        elif joy2.btn_pressed(): sound_back(); return
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(10)
 
 # === GITHUB CATALOG ===
@@ -614,9 +630,10 @@ def github_catalog():
     clear(); draw_status_bar("GitHub Catalog"); text("Loading...", 10, 100, YELLOW, font16)
     games = load_catalog()
     if games is None or not games:
-        sound_error(); text("Failed/Empty", 10, 100, RED, font16); text("Joy2BTN: Back", 10, 160, WHITE, font8)
+        sound_error(); text("Failed/Empty", 10, 100, RED, font16); text("B: Back", 10, 160, WHITE, font8)
         while True:
-            if joy2.btn_pressed(): sound_back(); return
+            if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                sound_back(); return
             time.sleep_ms(16)
         return
     
@@ -643,19 +660,22 @@ def github_catalog():
             selected += 1
             if selected >= scroll_offset + visible: scroll_offset = selected - visible + 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             name, url, version = games[selected]
             sound_select()
             clear(); draw_status_bar("Download?"); text(name[:18], 10, 80, CYAN, font16); text("v" + version, 10, 110, GREEN, font8)
-            text("Joy1BTN: Yes", 10, 160, GREEN, font8); text("Joy2BTN: No", 10, 180, RED, font8)
+            text("A: Yes", 10, 160, GREEN, font8); text("B: No", 10, 180, RED, font8)
             confirm = False
             while True:
-                if joy1.btn_pressed(): confirm = True; sound_select(); break
-                elif joy2.btn_pressed(): sound_back(); break
+                if joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
+                    confirm = True; sound_select(); break
+                elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                    sound_back(); break
                 time.sleep_ms(16)
             if confirm: download_game(name, url)
             needs_redraw = True
-        elif joy2.btn_pressed(): sound_back(); return
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(10)
 
 # === WIFI SETTINGS ===
@@ -709,7 +729,7 @@ def wifi_scanner():
             selected += 1
             if selected >= scroll_offset + visible: scroll_offset = selected - visible + 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             ssid = networks[selected][0].decode('utf-8', 'ignore')
             auth = networks[selected][4]
             sound_select(); wlan.active(False)
@@ -717,7 +737,8 @@ def wifi_scanner():
                 password = keyboard_input("Pass: " + ssid[:10])
                 return ssid, password
             else: return ssid, ""
-        elif joy2.btn_pressed(): sound_back(); wlan.active(False); return None, None
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); wlan.active(False); return None, None
         time.sleep_ms(10)
 
 def wifi_settings():
@@ -736,7 +757,7 @@ def wifi_settings():
         direction = joy1.read()
         if direction == 'up' and selected > 0: selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'down' and selected < len(menu_items) - 1: selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             sound_select()
             if selected == 0:
                 ssid, password = wifi_scanner()
@@ -757,9 +778,10 @@ def wifi_settings():
                 ssid, password = load_wifi_config()
                 if ssid: text("Saved:", 10, 80, GREEN, font16); text(ssid[:18], 10, 110, WHITE, font16); text("Pass: " + ("*" * len(password)), 10, 140, YELLOW, font8)
                 else: text("No saved", 10, 100, YELLOW, font16)
-                text("Joy2BTN: Back", 10, 180, WHITE, font8)
+                text("B: Back", 10, 180, WHITE, font8)
                 while True:
-                    if joy2.btn_pressed(): sound_back(); break
+                    if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                        sound_back(); break
                     time.sleep_ms(16)
             elif selected == 2:
                 clear(); draw_status_bar("WebREPL")
@@ -770,9 +792,10 @@ def wifi_settings():
                     wlan = network.WLAN(network.STA_IF)
                     if wlan.isconnected(): ip = wlan.ifconfig()[0]
                 except: pass
-                text("ws://" + ip + ":8266/", 10, 125, GREEN, font8); text("Joy2BTN: Back", 10, 200, WHITE, font8)
+                text("ws://" + ip + ":8266/", 10, 125, GREEN, font8); text("B: Back", 10, 200, WHITE, font8)
                 while True:
-                    if joy2.btn_pressed(): sound_back(); break
+                    if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                        sound_back(); break
                     time.sleep_ms(16)
             elif selected == 3:
                 clear(); draw_status_bar("FTP Info")
@@ -780,15 +803,17 @@ def wifi_settings():
                 text("/sd/apps/ftp_server.py", 10, 100, WHITE, font8)
                 text("It creates its own", 10, 130, YELLOW, font8)
                 text("WiFi AP for PC/Phone", 10, 145, YELLOW, font8)
-                text("Joy2BTN: Back", 10, 200, WHITE, font8)
+                text("B: Back", 10, 200, WHITE, font8)
                 while True:
-                    if joy2.btn_pressed(): sound_back(); break
+                    if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                        sound_back(); break
                     time.sleep_ms(16)
             elif selected == 4:
                 wlan = network.WLAN(network.STA_IF); wlan.disconnect(); wlan.active(False)
                 sound_select(); clear(); draw_status_bar("Disconnected"); text("WiFi disabled", 10, 100, YELLOW, font16); time.sleep_ms(1500)
                 needs_redraw = True
-        elif joy2.btn_pressed(): sound_back(); return
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(10)
 
 # === APPS MENU ===
@@ -805,9 +830,10 @@ def apps_menu():
     if not items:
         clear(); draw_status_bar("Apps"); text("No apps found!", 10, 80, YELLOW, font16)
         text("/sd/games/", 10, 110, GREEN, font8); text("/sd/apps/", 10, 130, CYAN, font8)
-        text("Joy2BTN: Back", 10, 190, WHITE, font8)
+        text("B: Back", 10, 190, WHITE, font8)
         while True:
-            if joy2.btn_pressed(): sound_back(); return
+            if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                sound_back(); return
             time.sleep_ms(16)
         return
     
@@ -838,10 +864,11 @@ def apps_menu():
             selected += 1
             if selected >= scroll_offset + visible: scroll_offset = selected - visible + 1
             sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        elif joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             _, _, path = items[selected]
             sound_select(); launch_file(path); mount_sd(); needs_redraw = True
-        elif joy2.btn_pressed(): sound_back(); return
+        elif joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(10)
 
 # === WIFI UPDATE ===
@@ -880,10 +907,11 @@ def wifi_update():
             if wlan.isconnected(): break
             text("." * (i+1), 10, 130, GREEN, font8); time.sleep_ms(500)
         if not wlan.isconnected():
-            sound_error(); text("No internet!", 10, 160, RED, font16); text("Joy2BTN: Back", 10, 200, WHITE, font8)
+            sound_error(); text("No internet!", 10, 160, RED, font16); text("B: Back", 10, 200, WHITE, font8)
             wlan.active(False)
             while True:
-                if joy2.btn_pressed(): sound_back(); return
+                if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                    sound_back(); return
                 time.sleep_ms(16)
             return
         
@@ -913,31 +941,33 @@ def wifi_update():
                 beep(1500, 200); time.sleep_ms(1000)
                 wlan.disconnect(); wlan.active(False); machine.reset()
             else:
-                text("Already latest", 10, 130, YELLOW, font16); text("Joy2BTN: Back", 10, 160, WHITE, font8)
+                text("Already latest", 10, 130, YELLOW, font16); text("B: Back", 10, 160, WHITE, font8)
                 wlan.disconnect(); wlan.active(False)
                 while True:
-                    if joy2.btn_pressed(): sound_back(); return
+                    if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                        sound_back(); return
                     time.sleep_ms(16)
         else:
             sound_error(); text("Download failed", 10, 130, RED, font16); response.close(); time.sleep(2)
     except Exception as e:
-        sound_error(); draw_wrapped_text(str(e), 10, 130, RED, font8); text("Joy2BTN: Back", 10, 200, WHITE, font8)
+        sound_error(); draw_wrapped_text(str(e), 10, 130, RED, font8); text("B: Back", 10, 200, WHITE, font8)
         while True:
-            if joy2.btn_pressed(): sound_back(); return
+            if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                sound_back(); return
             time.sleep_ms(16)
 
 # === ABOUT ===
 def about_screen():
     clear(); draw_status_bar("About")
-    text("MaFe P1 OS", 10, 50, CYAN, font16); text("Version 1.4", 10, 80, WHITE, font16)
-    text("Fixes:", 10, 110, YELLOW, font16)
-    text("- No screen flicker", 10, 130, WHITE, font8)
-    text("- Error text wrap", 10, 145, WHITE, font8)
-    text("- Left aligned text", 10, 160, WHITE, font8)
-    text("- Graphical Menu", 10, 175, WHITE, font8)
-    text("Joy2BTN to exit", 10, 210, YELLOW, font8)
+    text("MaFe P1 OS", 10, 50, CYAN, font16); text("Version 2.0", 10, 80, WHITE, font16)
+    text("Features:", 10, 110, YELLOW, font16)
+    text("- 15 button support", 10, 130, WHITE, font8)
+    text("- Modular libraries", 10, 145, WHITE, font8)
+    text("- Game menu system", 10, 160, WHITE, font8)
+    text("B to exit", 10, 210, YELLOW, font8)
     while True:
-        if joy2.btn_pressed(): sound_back(); return
+        if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+            sound_back(); return
         time.sleep_ms(16)
 
 # === GRAPHICAL MENU LAUNCHER ===
@@ -948,9 +978,10 @@ def launch_graphical_menu():
         clear(); draw_status_bar("Error")
         text("Menu error!", 10, 80, RED, font16)
         draw_wrapped_text(str(e), 10, 110, YELLOW, font8)
-        text("Joy2BTN: Back", 10, 200, WHITE, font8)
+        text("B: Back", 10, 200, WHITE, font8)
         while True:
-            if joy2.btn_pressed(): sound_back(); return
+            if joy2.btn_pressed() or (HAS_BUTTONS and control.btn_b()):
+                sound_back(); return
             time.sleep_ms(16)
 
 # === MAIN MENU ===
@@ -971,7 +1002,7 @@ def main_menu():
     while True:
         if needs_redraw:
             clear()
-            draw_status_bar("MaFe P1 OS v1.4")
+            draw_status_bar("MaFe P1 OS v2.0")
             text("MaFe P1", 10, 40, CYAN, font16)
             
             start_idx = max(0, selected - 2)
@@ -989,20 +1020,47 @@ def main_menu():
             draw_hints()
             needs_redraw = False
         
+        # Навигация джойстиком
         direction = joy1.read()
         if direction == 'up' and selected > 0:
             selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
         elif direction == 'down' and selected < len(menu_items) - 1:
             selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
-        elif joy1.btn_pressed():
+        
+        # Навигация кнопками D-Pad
+        if HAS_BUTTONS:
+            if control.btn_pressed('UP') and selected > 0:
+                selected -= 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
+            elif control.btn_pressed('DOWN') and selected < len(menu_items) - 1:
+                selected += 1; sound_nav(); needs_redraw = True; time.sleep_ms(150)
+        
+        # Выбор (Joy1BTN или кнопка A)
+        if joy1.btn_pressed() or (HAS_BUTTONS and control.btn_a()):
             _, func, _ = menu_items[selected]
             if func:
                 sound_select()
                 func()
                 mount_sd()
                 needs_redraw = True
+        
+        # Назад (кнопка B) - выход из OS
+        if HAS_BUTTONS and control.btn_b():
+            sound_back()
+            clear()
+            text("Exit OS?", 60, 100, YELLOW, font16)
+            text("A:Yes  B:No", 60, 130, WHITE, font8)
+            
+            while True:
+                if control.btn_a():
+                    machine.reset()
+                elif control.btn_b():
+                    break
+                time.sleep_ms(16)
+            
+            needs_redraw = True
+        
         time.sleep_ms(10)
 
 if __name__ == '__main__':
-    print("MaFe P1 OS v1.4 starting...")
+    print("MaFe P1 OS v2.0 starting...")
     main_menu()
